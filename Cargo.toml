@@ -1,6 +1,6 @@
 [package]
 name = "vin-decode"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.85"
 description = "Auto-updating VIN decoder backed by NHTSA vPIC, refreshed monthly via CI"
