@@ -101,11 +101,11 @@ jobs:
           mkdir -p /tmp/csv
 
           # Discover logical names from .bak header — they vary by snapshot
-          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -h -1 -W -s "|" \
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -h -1 -W -s "$(printf '\t')" \
             -Q "RESTORE FILELISTONLY FROM DISK = N'/var/opt/mssql/backup/vpic.bak'" \
             -o /tmp/filelist.txt
-          data_logical=$(awk -F'|' 'NR==1 {print $1}' /tmp/filelist.txt | xargs)
-          log_logical=$(awk -F'|' 'NR==2 {print $1}' /tmp/filelist.txt | xargs)
+          data_logical=$(awk -F'\t' 'NR==1 {print $1}' /tmp/filelist.txt | xargs)
+          log_logical=$(awk -F'\t' 'NR==2 {print $1}' /tmp/filelist.txt | xargs)
           echo "data logical: $data_logical"
           echo "log logical:  $log_logical"
 
@@ -122,22 +122,23 @@ jobs:
             local query="$1"
             local out="$2"
             local header="$3"
-            sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "|" -h -1 \
+            sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "$(printf '\t')" -h -1 \
               -Q "$query" -o "${out}.raw"
             grep -vE '^\s*$|^\([0-9]+ rows affected\)$|^Changed database context' "${out}.raw" > "${out}"
             sed -i "1i ${header}" "${out}"
             rm "${out}.raw"
           }
 
+          TAB=$(printf '\t')
           dump_table \
             "SELECT w.Wmi, m.Name FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId ORDER BY w.Wmi" \
             /tmp/csv/wmi_make.csv \
-            "Wmi|Make"
+            "Wmi${TAB}Make"
 
           dump_table \
             "SELECT w.Wmi, ws.VinSchemaId FROM Wmi w JOIN Wmi_VinSchema ws ON ws.WmiId=w.Id ORDER BY w.Wmi" \
             /tmp/csv/wmi_schema_id.csv \
-            "Wmi|schema_id"
+            "Wmi${TAB}schema_id"
 
           # Discover Pattern columns first — vPIC uses ElementWeight in some snapshots, just Weight in others
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -h -1 \
@@ -153,7 +154,7 @@ jobs:
           dump_table \
             "SELECT p.VinSchemaId, p.Keys, e.Name, p.AttributeId, ${weight_expr} FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
             /tmp/csv/schema_id_lookup.csv \
-            "schema_id|Pattern|ElementCode|AttributeId|ElementWeight"
+            "schema_id${TAB}Pattern${TAB}ElementCode${TAB}AttributeId${TAB}ElementWeight"
 
           echo "--- csv head ---"
           for f in /tmp/csv/*.csv; do echo "=== $f ==="; head -5 "$f"; done

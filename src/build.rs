@@ -184,7 +184,7 @@ where
 {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
-        .delimiter(b'|')
+        .delimiter(b'\t')
         .quoting(false)
         .from_path(csv_path)?;
     let fst_writer = BufWriter::new(File::create(fst_path)?);
@@ -318,7 +318,7 @@ where
 {
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
-        .delimiter(b'|')
+        .delimiter(b'\t')
         .quoting(false)
         .from_path(csv_path)?;
     let mut acc: BTreeMap<String, Vec<T>> = BTreeMap::new();
