@@ -131,7 +131,7 @@ jobs:
 
           TAB=$(printf '\t')
           dump_table \
-            "SELECT w.Wmi, m.Name FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId ORDER BY w.Wmi" \
+            "SELECT w.Wmi, REPLACE(REPLACE(m.Name, CHAR(13), ' '), CHAR(10), ' ') FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId ORDER BY w.Wmi" \
             /tmp/csv/wmi_make.csv \
             "Wmi${TAB}Make"
 
@@ -152,7 +152,7 @@ jobs:
           echo "using weight expr: $weight_expr"
 
           dump_table \
-            "SELECT p.VinSchemaId, p.Keys, e.Name, p.AttributeId, ${weight_expr} FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
+            "SELECT p.VinSchemaId, REPLACE(REPLACE(p.Keys, CHAR(13), ' '), CHAR(10), ' '), e.Name, REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' '), ${weight_expr} FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
             /tmp/csv/schema_id_lookup.csv \
             "schema_id${TAB}Pattern${TAB}ElementCode${TAB}AttributeId${TAB}ElementWeight"
 
