@@ -200,7 +200,7 @@ jobs:
           new=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "([0-9.]+)"/\1/')
           git config user.name "vpic-bot"
           git config user.email "vpic-bot@users.noreply.github.com"
-          git add data/ Cargo.toml Cargo.lock
+          git add data/ Cargo.toml
           git commit -m "chore(data): refresh vPIC ${{ steps.probe.outputs.ym }} (v${new})"
           git tag "v${new}"
           git push origin HEAD --tags
