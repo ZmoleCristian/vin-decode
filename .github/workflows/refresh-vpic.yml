@@ -119,19 +119,27 @@ jobs:
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -i /tmp/restore.sql
 
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "|" -h -1 \
-            -Q "SELECT Wmi, Make FROM (SELECT w.Wmi, m.Name AS Make FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId) t ORDER BY Wmi" \
+            -Q "SET NOCOUNT ON; SELECT Wmi, Make FROM (SELECT w.Wmi, m.Name AS Make FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId) t ORDER BY Wmi" \
             -o /tmp/csv/wmi_make.csv
+          sed -i '/^$/d' /tmp/csv/wmi_make.csv
           sed -i '1i Wmi|Make' /tmp/csv/wmi_make.csv
 
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "|" -h -1 \
-            -Q "SELECT w.Wmi, ws.VinSchemaId FROM Wmi w JOIN Wmi_VinSchema ws ON ws.WmiId=w.Id ORDER BY w.Wmi" \
+            -Q "SET NOCOUNT ON; SELECT w.Wmi, ws.VinSchemaId FROM Wmi w JOIN Wmi_VinSchema ws ON ws.WmiId=w.Id ORDER BY w.Wmi" \
             -o /tmp/csv/wmi_schema_id.csv
+          sed -i '/^$/d' /tmp/csv/wmi_schema_id.csv
           sed -i '1i Wmi|schema_id' /tmp/csv/wmi_schema_id.csv
 
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "|" -h -1 \
-            -Q "SELECT p.VinSchemaId, p.Keys, e.Name AS ElementCode, p.AttributeId, ISNULL(p.ElementWeight,0) FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
+            -Q "SET NOCOUNT ON; SELECT p.VinSchemaId, p.Keys, e.Name AS ElementCode, p.AttributeId, ISNULL(p.ElementWeight,0) FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
             -o /tmp/csv/schema_id_lookup.csv
+          sed -i '/^$/d' /tmp/csv/schema_id_lookup.csv
           sed -i '1i schema_id|Pattern|ElementCode|AttributeId|ElementWeight' /tmp/csv/schema_id_lookup.csv
+
+          echo "--- csv head ---"
+          head -3 /tmp/csv/*.csv
+          echo "--- csv line counts ---"
+          wc -l /tmp/csv/*.csv
 
       - name: regenerate FSTs
         if: steps.skip.outputs.skip != 'true'
