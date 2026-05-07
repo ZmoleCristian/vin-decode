@@ -129,13 +129,13 @@ fn sunrise_to_string() {
 
 #[test]
 fn sunrise_too_short() {
-    let r = Vin::new(&"A".repeat(16));
+    let r = Vin::new("A".repeat(16));
     assert!(matches!(r, Err(Error::InvalidLength(16))));
 }
 
 #[test]
 fn sunrise_too_long() {
-    let r = Vin::new(&"A".repeat(18));
+    let r = Vin::new("A".repeat(18));
     assert!(matches!(r, Err(Error::InvalidLength(18))));
 }
 
