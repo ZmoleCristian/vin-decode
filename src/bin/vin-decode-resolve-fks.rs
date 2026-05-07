@@ -142,10 +142,7 @@ fn regen_make_models(
         &out_dir.join("make_models.fst"),
         &out_dir.join("make_models.bin"),
     )?;
-    eprintln!(
-        "regen make_models: {} make groups",
-        make_models.len()
-    );
+    eprintln!("regen make_models: {} make groups", make_models.len());
     let _ = std::any::type_name::<ModelRow>();
     Ok(())
 }
@@ -163,8 +160,7 @@ fn load_resolvers(dir: &std::path::Path) -> std::io::Result<HashMap<String, Hash
             None => continue,
         };
         let f = File::open(&path)?;
-        let json: serde_json::Value =
-            serde_json::from_reader(f).map_err(std::io::Error::other)?;
+        let json: serde_json::Value = serde_json::from_reader(f).map_err(std::io::Error::other)?;
         let mut map: HashMap<u32, String> = HashMap::new();
         if let Some(arr) = json.get("Results").and_then(|v| v.as_array()) {
             for r in arr {

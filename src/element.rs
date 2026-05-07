@@ -81,9 +81,8 @@ impl Element {
         // unresolved (purely numeric strings — IDs that didn't match a lookup
         // table at extraction time). Don't let those clobber a properly-named
         // make/model/manufacturer that came from the WMI table.
-        let looks_unresolved_fk = !value.is_empty()
-            && value.chars().all(|c| c.is_ascii_digit())
-            && value.len() < 6;
+        let looks_unresolved_fk =
+            !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) && value.len() < 6;
         match self {
             Element::Make => {
                 if !(looks_unresolved_fk && vehicle.make.is_some()) {

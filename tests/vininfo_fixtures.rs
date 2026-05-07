@@ -235,7 +235,12 @@ fn vininfo_basic_fields() {
         let vin = Vin::new(f.vin).unwrap_or_else(|e| panic!("[{}] vin parse failed: {e}", f.src));
         assert_eq!(vin.wmi(), f.wmi, "[{}] wmi", f.src);
         assert_eq!(vin.region_code(), f.region_code, "[{}] region_code", f.src);
-        assert_eq!(vin.country_code(), f.country_code, "[{}] country_code", f.src);
+        assert_eq!(
+            vin.country_code(),
+            f.country_code,
+            "[{}] country_code",
+            f.src
+        );
         assert_eq!(vin.year_code(), f.year_code, "[{}] year_code", f.src);
         assert_eq!(vin.squish_vin(), f.squish, "[{}] squish_vin", f.src);
         // VIS = chars 10-17 (0-indexed 9..17, length 8). vininfo notation matches.
@@ -257,12 +262,7 @@ fn vininfo_basic_fields() {
         );
 
         let years = vin.year_candidates();
-        assert_eq!(
-            years.as_slice(),
-            f.years,
-            "[{}] year_candidates",
-            f.src
-        );
+        assert_eq!(years.as_slice(), f.years, "[{}] year_candidates", f.src);
     }
 }
 
@@ -305,10 +305,7 @@ fn vininfo_make_lookup() {
 #[test]
 fn vininfo_validation_rejects() {
     use vin_decode::Error;
-    assert!(matches!(
-        Vin::new("tooshort"),
-        Err(Error::InvalidLength(_))
-    ));
+    assert!(matches!(Vin::new("tooshort"), Err(Error::InvalidLength(_))));
     // 'O' is forbidden (would be confused with '0')
     assert!(matches!(
         Vin::new("AAAAAAAAAAAAAAAAO"),
@@ -338,7 +335,11 @@ fn vininfo_checksum_known_valid() {
 fn vininfo_checksum_corrupted() {
     let dec = open_decoder();
     let r = dec.decode("1M8GDM9AyKP042788");
-    assert!(r.is_err(), "checksum should reject corrupted VIN, got {:?}", r);
+    assert!(
+        r.is_err(),
+        "checksum should reject corrupted VIN, got {:?}",
+        r
+    );
 }
 
 /// vininfo test_module.py: unsupported brand still parses, just no make.

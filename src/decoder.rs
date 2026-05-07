@@ -83,10 +83,7 @@ impl Decoder {
 
     fn decode_inner(&self, vin: Vin) -> Vehicle {
         let wmi = vin.wmi().to_string();
-        let mut make_row = self
-            .wmi_make
-            .get(&wmi)
-            .and_then(|mut rows| rows.pop());
+        let mut make_row = self.wmi_make.get(&wmi).and_then(|mut rows| rows.pop());
         let make = make_row.as_ref().map(|r| r.name.clone());
 
         let mut vehicle = Vehicle {
