@@ -18,10 +18,10 @@ include!(concat!(env!("OUT_DIR"), "/embedded_data.rs"));
 /// Decompress + install the embedded data set into `dir` if not already current.
 pub(crate) fn ensure_installed(dir: &Path) -> crate::Result<()> {
     let stamp = dir.join("VERSION");
-    if let Ok(existing) = fs::read_to_string(&stamp)
-        && existing.trim() == VERSION
-    {
-        return Ok(());
+    if let Ok(existing) = fs::read_to_string(&stamp) {
+        if existing.trim() == VERSION {
+            return Ok(());
+        }
     }
     fs::create_dir_all(dir)?;
     for (name, payload, compressed) in FILES {
