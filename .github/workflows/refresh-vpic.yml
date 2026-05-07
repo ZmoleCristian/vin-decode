@@ -72,7 +72,9 @@ jobs:
           fi
           curl -fsSL --retry 3 --max-time 600 -o /tmp/vpic.bak.zip "$url"
           unzip -o /tmp/vpic.bak.zip -d /tmp
-          mv /tmp/vPICList_lite.bak /tmp/vpic.bak
+          extracted=$(find /tmp -maxdepth 1 -iname '*.bak' | head -1)
+          if [ -z "$extracted" ]; then echo "no .bak in archive"; exit 1; fi
+          mv "$extracted" /tmp/vpic.bak
 
       - name: skip if unchanged
         id: skip
