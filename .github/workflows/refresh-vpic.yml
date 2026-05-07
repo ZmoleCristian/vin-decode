@@ -139,8 +139,19 @@ jobs:
             /tmp/csv/wmi_schema_id.csv \
             "Wmi|schema_id"
 
+          # Discover Pattern columns first — vPIC uses ElementWeight in some snapshots, just Weight in others
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -h -1 \
+            -Q "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='Pattern' ORDER BY ORDINAL_POSITION" \
+            -o /tmp/pattern_cols.txt
+          echo "--- pattern columns ---"
+          cat /tmp/pattern_cols.txt
+          weight_col=$(grep -iE 'weight' /tmp/pattern_cols.txt | head -1 | xargs)
+          weight_col=${weight_col:-NULL}
+          weight_expr=$([ "$weight_col" = "NULL" ] && echo "0" || echo "ISNULL(p.${weight_col},0)")
+          echo "using weight expr: $weight_expr"
+
           dump_table \
-            "SELECT p.VinSchemaId, p.Keys, e.Name, p.AttributeId, ISNULL(p.ElementWeight,0) FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
+            "SELECT p.VinSchemaId, p.Keys, e.Name, p.AttributeId, ${weight_expr} FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
             /tmp/csv/schema_id_lookup.csv \
             "schema_id|Pattern|ElementCode|AttributeId|ElementWeight"
 
