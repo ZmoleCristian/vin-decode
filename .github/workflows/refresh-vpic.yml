@@ -160,6 +160,8 @@ jobs:
           for f in /tmp/csv/*.csv; do echo "=== $f ==="; head -5 "$f"; done
           echo "--- csv line counts ---"
           wc -l /tmp/csv/*.csv
+          echo "--- schema_id_lookup lines 35-45 ---"
+          sed -n '35,45p' /tmp/csv/schema_id_lookup.csv | cat -A
 
       - name: regenerate FSTs
         if: steps.skip.outputs.skip != 'true'
