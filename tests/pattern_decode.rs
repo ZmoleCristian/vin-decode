@@ -20,15 +20,10 @@
 //! Until that fix lands, the broken assertions below are marked `#[ignore]`
 //! and will start passing after the next data refresh.
 
-use std::path::PathBuf;
 use vin_decode::Decoder;
 
-fn data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data-built")
-}
-
 fn open_decoder() -> Decoder {
-    Decoder::open(&data_dir()).expect("open decoder against data-built")
+    Decoder::new().expect("open decoder via embedded data")
 }
 
 /// Real Honda Accord VIN. Make resolution works; model resolution returns FK.

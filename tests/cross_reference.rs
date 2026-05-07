@@ -4,19 +4,16 @@
 //! traceable. We intentionally use `decode_unchecked` because most upstream
 //! fixtures use placeholder digits (`0`s) that don't pass ISO 3779.
 
-use std::path::PathBuf;
 use vin_decode::{Catalog, Decoder};
 
-fn data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data-built")
-}
-
 fn open_decoder() -> Decoder {
-    Decoder::open(&data_dir()).expect("open decoder against data-built")
+    // Decoder::new prefers VIN_DECODE_DATA_DIR but falls back to the embedded
+    // data set (auto-decompressed into ~/.vin-decode-cache on first run).
+    Decoder::new().expect("open decoder via embedded data")
 }
 
 fn open_catalog() -> Catalog {
-    Catalog::open(&data_dir()).expect("open catalog against data-built")
+    Catalog::new().expect("open catalog via embedded data")
 }
 
 /// Source: vin-go/decode_brand_test.go — synthetic placeholder VINs.

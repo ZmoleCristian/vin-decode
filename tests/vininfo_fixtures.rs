@@ -16,15 +16,10 @@
 //! specific aliases like "Opel/Vauxhall" that don't always match upstream
 //! WMI tables 1:1).
 
-use std::path::PathBuf;
 use vin_decode::{Decoder, Vin, country_from_code, region_from_code};
 
-fn data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data-built")
-}
-
 fn open_decoder() -> Decoder {
-    Decoder::open(&data_dir()).expect("open decoder against data-built")
+    Decoder::new().expect("open decoder via embedded data")
 }
 
 /// Single fixture row pulled from a vininfo `data_provider()`.

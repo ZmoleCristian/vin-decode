@@ -10,15 +10,10 @@
 //! a brand-only assertion via the WMI table. We use `decode_unchecked` because
 //! the placeholder check digits don't validate.
 
-use std::path::PathBuf;
 use vin_decode::Decoder;
 
-fn data_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data-built")
-}
-
 fn open_decoder() -> Decoder {
-    Decoder::open(&data_dir()).expect("open decoder against data-built")
+    Decoder::new().expect("open decoder via embedded data")
 }
 
 /// (vin, expected_brand_substring_uppercase) — vin-go uses an enum like

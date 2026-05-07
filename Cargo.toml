@@ -24,6 +24,7 @@ include = [
 fst = "0.4"
 rkyv = "0.8"
 memmap2 = "0.9"
+fs2 = "0.4"
 thiserror = "2"
 time = { version = "0.3", default-features = false, features = ["std"] }
 zstd = { version = "0.13", default-features = false }
