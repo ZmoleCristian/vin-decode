@@ -53,6 +53,45 @@ impl Vin {
     pub fn plant_code(&self) -> char {
         self.0.as_bytes()[10] as char
     }
+
+    /// Region code — first character (ISO 3779 region bucket).
+    pub fn region_code(&self) -> char {
+        self.0.as_bytes()[0] as char
+    }
+
+    /// Country code — first two characters (ISO 3779 country range).
+    pub fn country_code(&self) -> &str {
+        &self.0[..2]
+    }
+
+    /// Squish-VIN — the 10-char fingerprint used by some lookup tools:
+    /// chars 1-8 + chars 10-11 (skipping the check digit at position 9).
+    pub fn squish_vin(&self) -> String {
+        let s = &self.0;
+        let mut out = String::with_capacity(10);
+        out.push_str(&s[..8]);
+        out.push_str(&s[9..11]);
+        out
+    }
+
+    /// Both possible model-year candidates from the VIN.
+    ///
+    /// SAE-J853 reuses each letter twice (30-year cycle). When position 7 is a
+    /// letter, the post-2009 candidate is generally correct; when it's a digit,
+    /// the pre-2010 candidate is correct. Returns an empty vec for unreadable
+    /// year codes (`I`/`O`/`Q`/`U`/`Z`/`0`). Numeric codes (`1`-`9`) only ever
+    /// map to a single year (2001-2009) since we haven't completed a second
+    /// cycle on digit codes yet.
+    pub fn year_candidates(&self) -> Vec<u32> {
+        let Some(base) = crate::year::year_for_code(self.year_code()) else {
+            return Vec::new();
+        };
+        if self.year_code().is_ascii_digit() {
+            vec![base]
+        } else {
+            vec![base + 30, base]
+        }
+    }
 }
 
 impl fmt::Display for Vin {

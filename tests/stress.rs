@@ -54,6 +54,8 @@ fn build_with_synthetic_500_makes_works() {
             wmi.clone(),
             vec![MakeRow {
                 name: format!("Make{i:04}"),
+                country: String::new(),
+                region: String::new(),
             }],
         ));
         let sid = format!("S{i:05}");

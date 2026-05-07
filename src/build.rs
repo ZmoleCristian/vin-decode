@@ -13,7 +13,7 @@ use fst::{MapBuilder, SetBuilder};
 use rkyv::rancor::Error as RkyvError;
 
 use crate::Error;
-pub use crate::data::{LookupRow, MakeRow, ModelRow, SchemaRow};
+pub use crate::data::{EngineRow, EuModelRow, LookupRow, MakeRow, ModelRow, SchemaRow};
 use crate::data::{RkyvSer, Saveable};
 
 /// Write a typed `key → Vec<T>` map as paired `.fst` index + `.bin` rkyv blob.
@@ -243,7 +243,9 @@ where
 /// Build the full map suite from a directory of vPIC CSVs.
 ///
 /// Expects `wmi_make.csv`, `wmi_schema_id.csv`, `schema_id_lookup.csv`, each
-/// sorted by their first column.
+/// sorted by their first column. Optional EU rip files (`wmi_merged.tsv`,
+/// `brands.tsv`, `brand_models.tsv`, `engines.tsv`) extend the output with
+/// merged WMI metadata, the canonical brand set, and per-brand engine specs.
 pub fn build_from_csv(csv_dir: &Path, out_dir: &Path) -> crate::Result<()> {
     std::fs::create_dir_all(out_dir)?;
     write_csv_grouped::<MakeRow, _>(
@@ -253,6 +255,8 @@ pub fn build_from_csv(csv_dir: &Path, out_dir: &Path) -> crate::Result<()> {
         |rec| {
             rec.get(1).map(|s| MakeRow {
                 name: s.to_string(),
+                country: rec.get(2).unwrap_or("").to_string(),
+                region: rec.get(3).unwrap_or("").to_string(),
             })
         },
     )?;
@@ -283,6 +287,8 @@ pub fn build_from_csv(csv_dir: &Path, out_dir: &Path) -> crate::Result<()> {
     let wmi_make = read_csv_grouped(&csv_dir.join("wmi_make.csv"), |rec| {
         rec.get(1).map(|s| MakeRow {
             name: s.to_string(),
+            country: rec.get(2).unwrap_or("").to_string(),
+            region: rec.get(3).unwrap_or("").to_string(),
         })
     })?;
     let wmi_schema = read_csv_grouped(&csv_dir.join("wmi_schema_id.csv"), |rec| {
@@ -335,4 +341,115 @@ impl From<csv::Error> for Error {
     fn from(e: csv::Error) -> Self {
         Error::MissingData(e.to_string())
     }
+}
+
+/// Build the EU/global rip output: merged WMI metadata, brand set, brand→model
+/// index, and per-brand engine variants.
+///
+/// `rip_dir` must contain `wmi_merged.tsv`, `brands.tsv`, `brand_models.tsv`,
+/// `engines.tsv` produced by the offline rip scripts. Output filenames match
+/// the existing FST conventions (`wmi_make.{fst,bin}`, `makes.fst`,
+/// `eu_brand_models.{fst,bin}`, `eu_engines.{fst,bin}`).
+pub fn build_from_rip(rip_dir: &Path, out_dir: &Path) -> crate::Result<()> {
+    std::fs::create_dir_all(out_dir)?;
+
+    write_csv_grouped::<MakeRow, _>(
+        &rip_dir.join("wmi_merged.tsv"),
+        &out_dir.join(format!("{}.fst", MakeRow::base_name())),
+        &out_dir.join(format!("{}.bin", MakeRow::base_name())),
+        |rec| {
+            rec.get(1).map(|s| MakeRow {
+                name: s.to_string(),
+                country: rec.get(2).unwrap_or("").to_string(),
+                region: rec.get(3).unwrap_or("").to_string(),
+            })
+        },
+    )?;
+
+    let mut brands: Vec<String> = Vec::new();
+    let mut brand_reader = csv::ReaderBuilder::new()
+        .has_headers(true)
+        .delimiter(b'\t')
+        .quoting(false)
+        .from_path(rip_dir.join("brands.tsv"))?;
+    for rec in brand_reader.records() {
+        let rec = rec.map_err(|e| Error::MissingData(e.to_string()))?;
+        if let Some(b) = rec.get(0) {
+            brands.push(b.to_string());
+        }
+    }
+    brands.sort();
+    brands.dedup();
+    write_set(&brands, &out_dir.join("makes.fst"))?;
+
+    write_csv_grouped::<EuModelRow, _>(
+        &rip_dir.join("brand_models.tsv"),
+        &out_dir.join(format!("{}.fst", EuModelRow::base_name())),
+        &out_dir.join(format!("{}.bin", EuModelRow::base_name())),
+        |rec| {
+            let name = rec.get(1)?.to_string();
+            let first_year: u16 = rec.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let last_year: u16 = rec.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+            Some(EuModelRow {
+                name,
+                first_year,
+                last_year,
+            })
+        },
+    )?;
+
+    write_csv_grouped::<EngineRow, _>(
+        &rip_dir.join("engines.tsv"),
+        &out_dir.join(format!("{}.fst", EngineRow::base_name())),
+        &out_dir.join(format!("{}.bin", EngineRow::base_name())),
+        engine_row_from_record,
+    )?;
+
+    Ok(())
+}
+
+/// Map an `engines.tsv` record onto an `EngineRow`. The TSV is keyed by
+/// `BRAND` (column 0) and embeds `MODEL` (column 1) inside the row so callers
+/// can `engines_for(brand)` then filter by model.
+fn engine_row_from_record(rec: &csv::StringRecord) -> Option<EngineRow> {
+    let model = rec.get(1)?.to_string();
+    let year: u16 = rec.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let name = rec.get(3).unwrap_or("").to_string();
+    let cylinders = rec.get(4).unwrap_or("").to_string();
+    let displacement_cm3: u32 = rec
+        .get(5)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.round() as u32)
+        .unwrap_or(0);
+    let power_kw: u32 = rec
+        .get(6)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.round() as u32)
+        .unwrap_or(0);
+    let power_hp: u32 = rec
+        .get(7)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.round() as u32)
+        .unwrap_or(0);
+    let torque_nm: u32 = rec
+        .get(8)
+        .and_then(|s| s.parse::<f64>().ok())
+        .map(|v| v.round() as u32)
+        .unwrap_or(0);
+    let fuel = rec.get(9).unwrap_or("").to_string();
+    let drive = rec.get(11).unwrap_or("").to_string();
+    let gearbox = rec.get(12).unwrap_or("").to_string();
+    Some(EngineRow {
+        model,
+        year,
+        name,
+        cylinders,
+        displacement_cm3,
+        power_kw,
+        power_hp,
+        torque_nm,
+        fuel,
+        drive,
+        gearbox,
+    })
 }

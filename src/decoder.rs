@@ -83,11 +83,11 @@ impl Decoder {
 
     fn decode_inner(&self, vin: Vin) -> Vehicle {
         let wmi = vin.wmi().to_string();
-        let make = self
+        let mut make_row = self
             .wmi_make
             .get(&wmi)
-            .and_then(|mut rows| rows.pop())
-            .map(|r| r.name);
+            .and_then(|mut rows| rows.pop());
+        let make = make_row.as_ref().map(|r| r.name.clone());
 
         let mut vehicle = Vehicle {
             vin: vin.as_str().to_string(),
@@ -96,11 +96,22 @@ impl Decoder {
             ..Default::default()
         };
 
+        if let Some(row) = make_row.take() {
+            if !row.country.is_empty() {
+                vehicle.plant_country = Some(row.country);
+            }
+            if !row.region.is_empty() {
+                vehicle.region = Some(row.region);
+            }
+        }
+
         if let Ok(y) = year::decode(&vin, current_year()) {
             vehicle.model_year = Some(y);
         }
-        if let Some(region) = crate::wmi::region(vin.as_str().chars().next().unwrap_or('\0')) {
-            vehicle.region = Some(region.to_string());
+        if vehicle.region.is_none() {
+            if let Some(region) = crate::wmi::region(vin.as_str().chars().next().unwrap_or('\0')) {
+                vehicle.region = Some(region.to_string());
+            }
         }
         self.fill_pattern_attrs(&vin, &mut vehicle);
         vehicle

@@ -20,16 +20,13 @@
 #[cfg(feature = "build")]
 pub mod build;
 
-#[cfg(feature = "build")]
 pub mod data;
-
-#[cfg(not(feature = "build"))]
-pub(crate) mod data;
 
 pub(crate) mod maps;
 
 mod catalog;
 mod check_digit;
+mod country;
 mod decoder;
 mod element;
 mod error;
@@ -42,9 +39,12 @@ mod year;
 mod embedded;
 
 pub use catalog::Catalog;
+pub use country::country_from_code;
+pub use data::{EngineRow, EuModelRow};
 pub use decoder::Decoder;
 pub use error::{Error, Result};
 pub use types::{BodyClass, FuelType, Vehicle, Vin};
+pub use wmi::region as region_from_code;
 
 #[cfg(feature = "build")]
 #[doc(hidden)]

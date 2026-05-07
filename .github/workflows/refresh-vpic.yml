@@ -152,8 +152,35 @@ jobs:
           weight_expr=$([ "$weight_col" = "NULL" ] && echo "0" || echo "ISNULL(p.${weight_col},0)")
           echo "using weight expr: $weight_expr"
 
+          # Pattern.AttributeId is a foreign-key into the per-element lookup
+          # table (Model.Id, BodyClass.Id, FuelType.Id, etc.) for numeric-typed
+          # elements, and a literal string for free-text elements. Resolve the
+          # FKs explicitly so downstream consumers see human-readable names
+          # ("Civic" instead of 1861).
           dump_table \
-            "SELECT p.VinSchemaId, REPLACE(REPLACE(p.Keys, CHAR(13), ' '), CHAR(10), ' '), e.Name, REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' '), ${weight_expr} FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
+            "SELECT p.VinSchemaId, REPLACE(REPLACE(p.Keys, CHAR(13), ' '), CHAR(10), ' '), e.Name, \
+                CASE e.Name \
+                  WHEN 'Model' THEN ISNULL((SELECT TOP 1 [Name] FROM [Model] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'Make' THEN ISNULL((SELECT TOP 1 [Name] FROM [Make] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'BodyClass' THEN ISNULL((SELECT TOP 1 [Name] FROM [BodyClass] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'FuelTypePrimary' THEN ISNULL((SELECT TOP 1 [Name] FROM [FuelType] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'FuelTypeSecondary' THEN ISNULL((SELECT TOP 1 [Name] FROM [FuelType] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'DriveType' THEN ISNULL((SELECT TOP 1 [Name] FROM [DriveType] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'EngineConfiguration' THEN ISNULL((SELECT TOP 1 [Name] FROM [EngineConfiguration] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'EngineManufacturer' THEN ISNULL((SELECT TOP 1 [Name] FROM [Manufacturer] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'Manufacturer' THEN ISNULL((SELECT TOP 1 [Name] FROM [Manufacturer] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'Transmission' THEN ISNULL((SELECT TOP 1 [Name] FROM [TransmissionStyle] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'BatteryType' THEN ISNULL((SELECT TOP 1 [Name] FROM [BatteryType] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'ChargerLevel' THEN ISNULL((SELECT TOP 1 [Name] FROM [ChargerLevel] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'EvDriveUnit' THEN ISNULL((SELECT TOP 1 [Name] FROM [ElectrificationLevel] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'BrakeSystemType' THEN ISNULL((SELECT TOP 1 [Name] FROM [BrakeSystem] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'PlantCountry' THEN ISNULL((SELECT TOP 1 [Name] FROM [Country] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'Series' THEN ISNULL((SELECT TOP 1 [Name] FROM [Series] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  WHEN 'Trim' THEN ISNULL((SELECT TOP 1 [Name] FROM [Trim] WHERE Id = TRY_CAST(p.AttributeId AS INT)), REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ')) \
+                  ELSE REPLACE(REPLACE(p.AttributeId, CHAR(13), ' '), CHAR(10), ' ') \
+                END, \
+                ${weight_expr} \
+              FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
             /tmp/csv/schema_id_lookup.csv \
             "schema_id${TAB}Pattern${TAB}ElementCode${TAB}AttributeId${TAB}ElementWeight"
 
@@ -164,12 +191,41 @@ jobs:
           echo "--- schema_id_lookup lines 35-45 ---"
           sed -n '35,45p' /tmp/csv/schema_id_lookup.csv | cat -A
 
+      - name: fetch NHTSA lookup tables
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -e
+          mkdir -p /tmp/nhtsa_lookups
+          fetch() {
+            curl -fsSL "https://vpic.nhtsa.dot.gov/api/vehicles/GetVehicleVariableValuesList/${2}?format=json" -o "/tmp/nhtsa_lookups/${1}.json"
+            count=$(jq ".Count // 0" "/tmp/nhtsa_lookups/${1}.json")
+            echo "$1: $count entries"
+          }
+          fetch Model "model"
+          fetch Make "make"
+          fetch BodyClass "body%20class"
+          fetch FuelTypePrimary "fuel%20type%20-%20primary"
+          fetch FuelTypeSecondary "fuel%20type%20-%20secondary"
+          fetch DriveType "drive%20type"
+          fetch EngineConfiguration "engine%20configuration"
+          fetch Transmission "transmission%20style"
+          fetch BatteryType "battery%20type"
+          fetch ChargerLevel "charger%20level"
+          fetch BrakeSystem "brake%20system%20type"
+          fetch PlantCountry "plant%20country"
+
       - name: regenerate FSTs
         if: steps.skip.outputs.skip != 'true'
         run: |
           set -e
-          mkdir -p target/maps
-          cargo run --features build --bin vin-decode-build -- /tmp/csv target/maps
+          mkdir -p target/maps target/maps-resolved
+          cargo run --features build --bin vin-decode-build --release -- /tmp/csv target/maps
+          # Resolve any remaining numeric FKs in schema_lookup using NHTSA tables.
+          # Belt-and-braces: the SQL CASE step above resolves most, but some
+          # edge-case elements may slip through; this catches them.
+          cargo run --features build --bin vin-decode-resolve-fks --release -- target/maps target/maps-resolved /tmp/nhtsa_lookups
+          cp target/maps-resolved/schema_lookup.fst target/maps/schema_lookup.fst
+          cp target/maps-resolved/schema_lookup.bin target/maps/schema_lookup.bin
           mkdir -p data
           cp target/maps/*.fst data/
           for bin in target/maps/*.bin; do

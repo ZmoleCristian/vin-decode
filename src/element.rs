@@ -34,32 +34,37 @@ pub(crate) enum Element {
 
 impl Element {
     pub(crate) fn from_str(s: &str) -> Option<Self> {
+        // vPIC's Element.Name field uses spaces and human-readable forms
+        // ("Body Class" not "BodyClass"). Accept both — our build pipeline
+        // emits Element.Name verbatim, but tests/fixtures may use the camelCase.
         Some(match s {
-            "Make" => Element::Make,
-            "Model" => Element::Model,
+            "Make" | "NCSA Make" => Element::Make,
+            "Model" | "NCSA Model" => Element::Model,
             "Series" => Element::Series,
-            "Trim" | "TrimLevel" => Element::Trim,
-            "BodyClass" | "BodyStyle" => Element::BodyClass,
-            "FuelTypePrimary" => Element::FuelTypePrimary,
-            "FuelTypeSecondary" => Element::FuelTypeSecondary,
+            "Trim" | "TrimLevel" | "Trim2" => Element::Trim,
+            "BodyClass" | "Body Class" | "BodyStyle" => Element::BodyClass,
+            "FuelTypePrimary" | "Fuel Type - Primary" => Element::FuelTypePrimary,
+            "FuelTypeSecondary" | "Fuel Type - Secondary" => Element::FuelTypeSecondary,
             "Doors" => Element::Doors,
-            "EngineCylinders" => Element::EngineCylinders,
-            "EngineModel" => Element::EngineModel,
-            "EngineConfiguration" => Element::EngineConfiguration,
-            "EngineManufacturer" => Element::EngineManufacturer,
-            "DisplacementL" => Element::DisplacementL,
+            "EngineCylinders" | "Engine Number of Cylinders" => Element::EngineCylinders,
+            "EngineModel" | "Engine Model" => Element::EngineModel,
+            "EngineConfiguration" | "Engine Configuration" => Element::EngineConfiguration,
+            "EngineManufacturer" | "Engine Manufacturer" => Element::EngineManufacturer,
+            "DisplacementL" | "Displacement (L)" => Element::DisplacementL,
             "Turbo" => Element::Turbo,
-            "DriveType" => Element::DriveType,
-            "Transmission" | "TransmissionStyle" => Element::Transmission,
-            "BatteryType" => Element::BatteryType,
-            "ChargerLevel" => Element::ChargerLevel,
-            "EVDriveUnit" => Element::EvDriveUnit,
-            "BrakeSystemType" => Element::BrakeSystemType,
-            "GVWR" => Element::Gvwr,
-            "PlantCity" => Element::PlantCity,
-            "PlantState" => Element::PlantState,
-            "PlantCountry" => Element::PlantCountry,
-            "Manufacturer" | "ManufacturerName" => Element::Manufacturer,
+            "DriveType" | "Drive Type" => Element::DriveType,
+            "Transmission" | "TransmissionStyle" | "Transmission Style" => Element::Transmission,
+            "BatteryType" | "Battery Type" => Element::BatteryType,
+            "ChargerLevel" | "Charger Level" => Element::ChargerLevel,
+            "EVDriveUnit" | "EV Drive Unit" | "Electrification Level" => Element::EvDriveUnit,
+            "BrakeSystemType" | "Brake System Type" => Element::BrakeSystemType,
+            "GVWR" | "Gross Vehicle Weight Rating From" | "Gross Vehicle Weight Rating To" => {
+                Element::Gvwr
+            }
+            "PlantCity" | "Plant City" => Element::PlantCity,
+            "PlantState" | "Plant State" => Element::PlantState,
+            "PlantCountry" | "Plant Country" => Element::PlantCountry,
+            "Manufacturer" | "ManufacturerName" | "Manufacturer Name" => Element::Manufacturer,
             _ => return None,
         })
     }
@@ -72,9 +77,29 @@ impl Element {
     }
 
     pub(crate) fn apply(self, vehicle: &mut Vehicle, value: String) {
+        // Defensive guard: vPIC FK-typed elements occasionally arrive
+        // unresolved (purely numeric strings — IDs that didn't match a lookup
+        // table at extraction time). Don't let those clobber a properly-named
+        // make/model/manufacturer that came from the WMI table.
+        let looks_unresolved_fk = !value.is_empty()
+            && value.chars().all(|c| c.is_ascii_digit())
+            && value.len() < 6;
         match self {
-            Element::Make => vehicle.make = Some(value),
-            Element::Model => vehicle.model = Some(value),
+            Element::Make => {
+                if !(looks_unresolved_fk && vehicle.make.is_some()) {
+                    vehicle.make = Some(value);
+                }
+            }
+            Element::Model => {
+                if !looks_unresolved_fk {
+                    vehicle.model = Some(value);
+                }
+            }
+            Element::Manufacturer => {
+                if !(looks_unresolved_fk && vehicle.manufacturer.is_some()) {
+                    vehicle.manufacturer = Some(value);
+                }
+            }
             Element::Series => vehicle.series = Some(value),
             Element::Trim => vehicle.trim = Some(value),
             Element::BodyClass => vehicle.body_class = Some(BodyClass::parse(&value)),
@@ -97,7 +122,6 @@ impl Element {
             Element::PlantCity => vehicle.plant_city = Some(value),
             Element::PlantState => vehicle.plant_state = Some(value),
             Element::PlantCountry => vehicle.plant_country = Some(value),
-            Element::Manufacturer => vehicle.manufacturer = Some(value),
         }
     }
 }

@@ -17,6 +17,9 @@ pub fn validate_chars(s: &str) -> crate::Result<()> {
     Ok(())
 }
 
+/// Map a VIN's first character (region code) to its ISO 3779 region name.
+///
+/// Returns `None` for unassigned codes (`0`, non-alphanumeric).
 pub fn region(first: char) -> Option<&'static str> {
     match first {
         'A'..='H' => Some("Africa"),

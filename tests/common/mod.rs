@@ -8,18 +8,24 @@ pub fn fixture_make_rows() -> Vec<(String, Vec<MakeRow>)> {
             "1HG".to_string(),
             vec![MakeRow {
                 name: "Honda".to_string(),
+                country: String::new(),
+                region: String::new(),
             }],
         ),
         (
             "2FT".to_string(),
             vec![MakeRow {
                 name: "Ford".to_string(),
+                country: String::new(),
+                region: String::new(),
             }],
         ),
         (
             "5YJ".to_string(),
             vec![MakeRow {
                 name: "Tesla".to_string(),
+                country: String::new(),
+                region: String::new(),
             }],
         ),
     ]

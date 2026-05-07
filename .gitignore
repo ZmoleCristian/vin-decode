@@ -3,3 +3,6 @@ Cargo.lock
 Cargo.lock.bak
 *.swp
 .DS_Store
+/data-built
+/data-resolved
+/data-shipped
