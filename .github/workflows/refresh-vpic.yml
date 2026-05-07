@@ -93,13 +93,27 @@ jobs:
         if: steps.skip.outputs.skip != 'true'
         run: |
           set -e
-          docker cp /tmp/vpic.bak $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest):/var/opt/mssql/backup/vpic.bak
+          container=$(docker ps --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest --format '{{.ID}}' | head -1)
+          if [ -z "$container" ]; then echo "no mssql container running"; docker ps; exit 1; fi
+          docker exec -u root "$container" mkdir -p /var/opt/mssql/backup
+          docker cp /tmp/vpic.bak "$container":/var/opt/mssql/backup/vpic.bak
+          docker exec -u root "$container" chown -R mssql:mssql /var/opt/mssql/backup
           mkdir -p /tmp/csv
-          cat > /tmp/restore.sql <<'SQL'
+
+          # Discover logical names from .bak header — they vary by snapshot
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -h -1 -W -s "|" \
+            -Q "RESTORE FILELISTONLY FROM DISK = N'/var/opt/mssql/backup/vpic.bak'" \
+            -o /tmp/filelist.txt
+          data_logical=$(awk -F'|' 'NR==1 {print $1}' /tmp/filelist.txt | xargs)
+          log_logical=$(awk -F'|' 'NR==2 {print $1}' /tmp/filelist.txt | xargs)
+          echo "data logical: $data_logical"
+          echo "log logical:  $log_logical"
+
+          cat > /tmp/restore.sql <<SQL
           USE [master];
           RESTORE DATABASE [vPICList] FROM DISK = N'/var/opt/mssql/backup/vpic.bak'
-          WITH MOVE 'vPICList_Lite' TO '/var/opt/mssql/data/vPICList.mdf',
-               MOVE 'vPICList_Lite_log' TO '/var/opt/mssql/data/vPICList_log.ldf',
+          WITH MOVE N'${data_logical}' TO N'/var/opt/mssql/data/vPICList.mdf',
+               MOVE N'${log_logical}' TO N'/var/opt/mssql/data/vPICList_log.ldf',
                REPLACE, NOUNLOAD, STATS = 5;
           SQL
           sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -i /tmp/restore.sql
