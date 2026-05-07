@@ -207,7 +207,7 @@ where
         let combined = (*offset << 32) | (bytes.len() as u64);
         builder
             .insert(key, combined)
-            .map_err(|e| Error::MissingData(e.to_string()))?;
+            .map_err(|e| Error::MissingData(format!("FST insert failed at key {key:?}: {e}")))?;
         *offset += bytes.len() as u64;
         Ok(())
     };

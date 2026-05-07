@@ -124,7 +124,8 @@ jobs:
             local header="$3"
             sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "$(printf '\t')" -h -1 \
               -Q "$query" -o "${out}.raw"
-            grep -vE '^\s*$|^\([0-9]+ rows affected\)$|^Changed database context' "${out}.raw" > "${out}"
+            grep -vE '^\s*$|^\([0-9]+ rows affected\)$|^Changed database context' "${out}.raw" \
+              | LC_ALL=C sort -t "$(printf '\t')" -k1,1 -s > "${out}"
             sed -i "1i ${header}" "${out}"
             rm "${out}.raw"
           }
