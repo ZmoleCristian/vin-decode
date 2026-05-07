@@ -1,0 +1,165 @@
+name: refresh-vpic
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: "publish even if data unchanged"
+        required: false
+        default: "false"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: VinDecodeP@ss123
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P VinDecodeP@ss123 -C -Q 'SELECT 1' || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl unzip zstd jq
+          curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor -o /usr/share/keyrings/microsoft.gpg
+          echo "deb [signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/22.04/prod jammy main" | sudo tee /etc/apt/sources.list.d/microsoft.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 unixodbc-dev
+          echo "/opt/mssql-tools18/bin" >> $GITHUB_PATH
+
+      - name: probe + download latest vPIC dump
+        id: probe
+        run: |
+          set -eo pipefail
+          for i in 0 1 2; do
+            ym=$(date -u -d "$(date -u +%Y-%m-15) -${i} month" +%Y_%m)
+            url="https://vpic.nhtsa.dot.gov/downloads/vPICList_lite_${ym}.bak.zip"
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$url")
+            if [ "$code" = "200" ]; then
+              echo "ym=$ym" >> $GITHUB_OUTPUT
+              echo "url=$url" >> $GITHUB_OUTPUT
+              echo "found vPIC ${ym}"
+              break
+            fi
+          done
+          if [ -z "${ym:-}" ]; then
+            echo "no recent vPIC dump found"; exit 1
+          fi
+          curl -fsSL --retry 3 --max-time 600 -o /tmp/vpic.bak.zip "$url"
+          unzip -o /tmp/vpic.bak.zip -d /tmp
+          mv /tmp/vPICList_lite.bak /tmp/vpic.bak
+
+      - name: skip if unchanged
+        id: skip
+        run: |
+          set -e
+          current=$(cat data/VERSION 2>/dev/null || echo none)
+          incoming="${{ steps.probe.outputs.ym }}"
+          force="${{ github.event.inputs.force_publish }}"
+          if [ "$current" = "$incoming" ] && [ "$force" != "true" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: restore .bak in mssql + dump csv
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -e
+          docker cp /tmp/vpic.bak $(docker ps -q --filter ancestor=mcr.microsoft.com/mssql/server:2022-latest):/var/opt/mssql/backup/vpic.bak
+          mkdir -p /tmp/csv
+          cat > /tmp/restore.sql <<'SQL'
+          USE [master];
+          RESTORE DATABASE [vPICList] FROM DISK = N'/var/opt/mssql/backup/vpic.bak'
+          WITH MOVE 'vPICList_Lite' TO '/var/opt/mssql/data/vPICList.mdf',
+               MOVE 'vPICList_Lite_log' TO '/var/opt/mssql/data/vPICList_log.ldf',
+               REPLACE, NOUNLOAD, STATS = 5;
+          SQL
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -i /tmp/restore.sql
+
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "," -h -1 \
+            -Q "SELECT Wmi, Make FROM (SELECT w.Wmi, m.Name AS Make FROM Wmi w JOIN Wmi_Make wm ON wm.WmiId=w.Id JOIN Make m ON m.Id=wm.MakeId) t ORDER BY Wmi" \
+            -o /tmp/csv/wmi_make.csv
+          sed -i '1i Wmi,Make' /tmp/csv/wmi_make.csv
+
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "," -h -1 \
+            -Q "SELECT w.Wmi, ws.VinSchemaId FROM Wmi w JOIN Wmi_VinSchema ws ON ws.WmiId=w.Id ORDER BY w.Wmi" \
+            -o /tmp/csv/wmi_schema_id.csv
+          sed -i '1i Wmi,schema_id' /tmp/csv/wmi_schema_id.csv
+
+          sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "," -h -1 \
+            -Q "SELECT p.VinSchemaId, p.Keys, e.Name AS ElementCode, p.AttributeId, ISNULL(p.ElementWeight,0) FROM Pattern p JOIN Element e ON e.Id=p.ElementId ORDER BY p.VinSchemaId" \
+            -o /tmp/csv/schema_id_lookup.csv
+          sed -i '1i schema_id,Pattern,ElementCode,AttributeId,ElementWeight' /tmp/csv/schema_id_lookup.csv
+
+      - name: regenerate FSTs
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -e
+          mkdir -p target/maps
+          cargo run --features build --bin vin-decode-build -- /tmp/csv target/maps
+          mkdir -p data
+          cp target/maps/*.fst data/
+          for bin in target/maps/*.bin; do
+            zstd -19 -f -o "data/$(basename $bin).zst" "$bin"
+          done
+          echo "${{ steps.probe.outputs.ym }}" > data/VERSION
+
+      - name: bump patch version
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -e
+          current=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "([0-9.]+)"/\1/')
+          IFS='.' read -r maj min patch <<< "$current"
+          new="${maj}.${min}.$((patch+1))"
+          sed -i "0,/^version = \".*\"/ s//version = \"${new}\"/" Cargo.toml
+          echo "bumped ${current} -> ${new}"
+
+      - name: cargo build + test
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          cargo build --all-features
+          cargo test --all-features
+
+      - name: commit + tag
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -e
+          new=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "([0-9.]+)"/\1/')
+          git config user.name "vpic-bot"
+          git config user.email "vpic-bot@users.noreply.github.com"
+          git add data/ Cargo.toml Cargo.lock
+          git commit -m "chore(data): refresh vPIC ${{ steps.probe.outputs.ym }} (v${new})"
+          git tag "v${new}"
+          git push origin HEAD --tags
+
+      - name: cargo publish
+        if: steps.skip.outputs.skip != 'true' && env.CARGO_REGISTRY_TOKEN != ''
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --all-features

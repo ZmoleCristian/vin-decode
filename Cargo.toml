@@ -1,0 +1,68 @@
+[package]
+name = "vin-decode"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Auto-updating VIN decoder backed by NHTSA vPIC, refreshed monthly via CI"
+license = "0BSD"
+readme = "README.md"
+repository = "https://github.com/ZmoleCristian/vin-decode"
+documentation = "https://docs.rs/vin-decode"
+keywords = ["vin", "nhtsa", "vpic", "vehicle", "decoder"]
+categories = ["parsing", "encoding"]
+include = [
+    "src/**/*.rs",
+    "build.rs",
+    "data/**/*.fst",
+    "data/**/*.bin.zst",
+    "data/VERSION",
+    "LICENSE",
+    "README.md",
+]
+
+[dependencies]
+fst = "0.4"
+rkyv = "0.8"
+memmap2 = "0.9"
+thiserror = "2"
+time = { version = "0.3", default-features = false, features = ["std"] }
+zstd = { version = "0.13", default-features = false }
+csv = { version = "1.3", optional = true }
+rayon = { version = "1.11", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+static_assertions = "1.1"
+
+[dev-dependencies]
+tempfile = "3"
+proptest = "1"
+
+[[test]]
+name = "build_pipeline"
+required-features = ["build"]
+
+[[test]]
+name = "decoder"
+required-features = ["build"]
+
+[[test]]
+name = "catalog"
+required-features = ["build"]
+
+[[test]]
+name = "stress"
+required-features = ["build"]
+
+[features]
+default = ["parallel", "embedded"]
+parallel = ["dep:rayon"]
+embedded = []
+build = ["dep:csv"]
+serde = ["dep:serde"]
+
+[[bin]]
+name = "vin-decode-build"
+required-features = ["build"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
