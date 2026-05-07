@@ -88,21 +88,21 @@ fn build_from_csv_parses_files() {
     std::fs::create_dir_all(&csv_dir).unwrap();
     std::fs::write(
         csv_dir.join("wmi_make.csv"),
-        "Wmi,Make\n1HG,Honda\n2FT,Ford\n5YJ,Tesla\n",
+        "Wmi|Make\n1HG|Honda\n2FT|Ford\n5YJ|Tesla\n",
     )
     .unwrap();
     std::fs::write(
         csv_dir.join("wmi_schema_id.csv"),
-        "Wmi,schema_id\n1HG,100\n2FT,200\n5YJ,300\n",
+        "Wmi|schema_id\n1HG|100\n2FT|200\n5YJ|300\n",
     )
     .unwrap();
     std::fs::write(
         csv_dir.join("schema_id_lookup.csv"),
-        "schema_id,Pattern,ElementCode,AttributeId,ElementWeight\n\
-         100,CM82*,Model,Civic,99\n\
-         100,C****,BodyClass,Sedan,10\n\
-         200,EF14*,Model,F-150,99\n\
-         300,3E1EA,Model,Model 3,99\n",
+        "schema_id|Pattern|ElementCode|AttributeId|ElementWeight\n\
+         100|CM82*|Model|Civic|99\n\
+         100|C****|BodyClass|Sedan|10\n\
+         200|EF14*|Model|F-150|99\n\
+         300|3E1EA|Model|Model 3|99\n",
     )
     .unwrap();
     vin_decode::build::build_from_csv(&csv_dir, &out_dir).unwrap();
