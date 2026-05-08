@@ -74,19 +74,26 @@ impl Vin {
         out
     }
 
-    /// Both possible model-year candidates from the VIN.
+    /// Both possible model-year candidates from the VIN's pos-10 year code.
     ///
-    /// SAE-J853 reuses each letter twice (30-year cycle). When position 7 is a
-    /// letter, the post-2009 candidate is generally correct; when it's a digit,
-    /// the pre-2010 candidate is correct. Returns an empty vec for unreadable
-    /// year codes (`I`/`O`/`Q`/`U`/`Z`/`0`). Numeric codes (`1`-`9`) only ever
-    /// map to a single year (2001-2009) since we haven't completed a second
-    /// cycle on digit codes yet.
+    /// SAE-J853 reuses each letter twice (30-year cycle), so a code like
+    /// `'F'` maps to both 1985 and 2015. This returns both. Numeric codes
+    /// `1`-`9` only ever map to a single year (2001-2009) since the second
+    /// digit cycle (2031-2039) hasn't started. Returns an empty vec for
+    /// unreadable codes (`I`/`O`/`Q`/`U`/`Z`/`0`).
+    ///
+    /// Note: many manufacturers don't follow the SAE-J853 pos-10 convention
+    /// (modern Mercedes encodes year in the chassis serial; some Renault /
+    /// Dacia families use other positions; Ford EU uses pos-11). For those
+    /// VINs this method may return candidates that don't include the actual
+    /// model year. The decoder no longer auto-picks one — consumers can
+    /// inspect the candidates and make their own call.
     pub fn year_candidates(&self) -> Vec<u32> {
-        let Some(base) = crate::year::year_for_code(self.year_code()) else {
+        let code = self.year_code();
+        let Some(base) = crate::year::year_for_code(code) else {
             return Vec::new();
         };
-        if self.year_code().is_ascii_digit() {
+        if code.is_ascii_digit() {
             vec![base]
         } else {
             vec![base + 30, base]

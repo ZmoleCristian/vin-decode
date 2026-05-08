@@ -13,7 +13,7 @@ use fst::{MapBuilder, SetBuilder};
 use rkyv::rancor::Error as RkyvError;
 
 use crate::Error;
-pub use crate::data::{EngineRow, EuModelRow, LookupRow, MakeRow, ModelRow, SchemaRow};
+pub use crate::data::{EngineRow, EuModelRow, LookupRow, MakeRow, ModelRow, SchemaRow, VinRuleRow};
 use crate::data::{RkyvSer, Saveable};
 
 /// Write a typed `key → Vec<T>` map as paired `.fst` index + `.bin` rkyv blob.
@@ -404,6 +404,35 @@ pub fn build_from_rip(rip_dir: &Path, out_dir: &Path) -> crate::Result<()> {
         &out_dir.join(format!("{}.bin", EngineRow::base_name())),
         engine_row_from_record,
     )?;
+
+    let wmi_rules_path = rip_dir.join("wmi_rules.tsv");
+    if wmi_rules_path.exists() {
+        // Read rules grouped by 3-char WMI, sort each group by remainder
+        // length DESC so the decoder can do longest-prefix-match.
+        let rule_rows = read_csv_grouped(&wmi_rules_path, |rec| {
+            let remainder = rec.get(1).unwrap_or("").to_string();
+            let make = rec.get(2).unwrap_or("").to_string();
+            let model = rec.get(3).unwrap_or("").to_string();
+            Some(VinRuleRow {
+                remainder,
+                make,
+                model,
+            })
+        })?;
+        let mut sorted: Vec<(String, Vec<VinRuleRow>)> = rule_rows
+            .into_iter()
+            .map(|(wmi, mut rows)| {
+                rows.sort_by_key(|r| std::cmp::Reverse(r.remainder.len()));
+                (wmi, rows)
+            })
+            .collect();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        write_grouped(
+            &sorted,
+            &out_dir.join(format!("{}.fst", VinRuleRow::base_name())),
+            &out_dir.join(format!("{}.bin", VinRuleRow::base_name())),
+        )?;
+    }
 
     Ok(())
 }

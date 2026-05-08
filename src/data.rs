@@ -150,3 +150,31 @@ impl Saveable for ModelRow {
         "make_models"
     }
 }
+
+/// Per-VIN rule keyed by 3-char WMI in the `wmi_rules` table. Each rule
+/// supplies a VDS-prefix `remainder` (matched against `vin[3..]`) plus optional
+/// `make` / `model` overrides. Empty strings mean "leave the existing value".
+///
+/// The build pipeline pre-sorts a WMI's rules by `remainder.len()` DESC so the
+/// decoder can do longest-prefix-match by walking the list and picking the
+/// first hit. A row with empty `remainder` acts as a fallback that fires for
+/// any VIN sharing the WMI (handy for fixing mislabeled WMI → make mappings
+/// from upstream sources without losing valid model-specific overrides).
+#[derive(Archive, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct VinRuleRow {
+    /// VDS prefix appended after the WMI (e.g. `"ZZZ8X"`); empty matches all.
+    pub remainder: String,
+    /// Make override (uppercase canonical, matches `eu_brand_models` keys);
+    /// empty string means keep the make resolved from `wmi_make`.
+    pub make: String,
+    /// Model override; empty string means leave model unset (let pattern
+    /// decode handle it).
+    pub model: String,
+}
+impl RkyvSer for VinRuleRow {}
+impl RkyvDe<VinRuleRow> for ArchivedVinRuleRow {}
+impl Saveable for VinRuleRow {
+    fn base_name() -> &'static str {
+        "wmi_rules"
+    }
+}

@@ -66,7 +66,7 @@ impl Catalog {
     /// Merges results from the vPIC pattern-derived index and the EU/global rip
     /// catalog, deduped and sorted.
     pub fn models_for_make(&self, make: &str) -> Vec<String> {
-        let key = make.to_ascii_uppercase();
+        let key = crate::decoder::normalize_make(make);
         let mut models: Vec<String> = self
             .make_models
             .get(&key)
@@ -88,7 +88,7 @@ impl Catalog {
     /// Returns an empty vec when the brand is unknown or the EU catalog is not
     /// embedded.
     pub fn eu_models_for(&self, brand: &str) -> Vec<EuModelRow> {
-        let key = brand.to_ascii_uppercase();
+        let key = crate::decoder::normalize_make(brand);
         self.eu_brand_models
             .as_ref()
             .and_then(|m| m.get(&key))
@@ -98,7 +98,7 @@ impl Catalog {
     /// Engine variants known for the given brand. Filter by `model` in user
     /// code, or use [`Catalog::engines_for`].
     pub fn engines_for_brand(&self, brand: &str) -> Vec<EngineRow> {
-        let key = brand.to_ascii_uppercase();
+        let key = crate::decoder::normalize_make(brand);
         self.eu_engines
             .as_ref()
             .and_then(|m| m.get(&key))

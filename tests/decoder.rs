@@ -16,7 +16,8 @@ fn decode_honda_civic_full_attrs() {
     assert_eq!(v.wmi, "1HG");
     assert_eq!(v.make.as_deref(), Some("Honda"));
     assert_eq!(v.model.as_deref(), Some("Civic"));
-    assert_eq!(v.model_year, Some(2003));
+    // model_year is no longer auto-decoded (consumer can call year_candidates).
+    assert_eq!(v.model_year, None);
     assert_eq!(v.body_class, Some(BodyClass::Sedan));
     assert_eq!(v.fuel_primary, Some(FuelType::Gasoline));
     assert_eq!(v.doors, Some(4));
@@ -30,7 +31,7 @@ fn decode_ford_truck() {
     let v = dec.decode(FORD).unwrap();
     assert_eq!(v.make.as_deref(), Some("Ford"));
     assert_eq!(v.model.as_deref(), Some("F-150"));
-    assert_eq!(v.model_year, Some(1996));
+    assert_eq!(v.model_year, None);
     assert_eq!(v.body_class, Some(BodyClass::Pickup));
 }
 
@@ -42,7 +43,7 @@ fn decode_tesla_electric() {
     let v = dec.decode(TESLA).unwrap();
     assert_eq!(v.make.as_deref(), Some("Tesla"));
     assert_eq!(v.model.as_deref(), Some("Model 3"));
-    assert_eq!(v.model_year, Some(2019));
+    assert_eq!(v.model_year, None);
     assert_eq!(v.fuel_primary, Some(FuelType::Electric));
 }
 

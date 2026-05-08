@@ -30,30 +30,59 @@ pub fn matches(pattern: &str, vds: &str, vis: &str) -> bool {
     let meta: Vec<&str> = parts.collect();
 
     if !meta.is_empty() && actual.chars().count() == 5 {
-        let plant = vis.chars().next().unwrap_or('\0');
-        let expected = meta[0].chars().nth(1).unwrap_or('\0');
-        return expected == '*' || expected == plant;
+        return vis_score(actual, vis, meta[0]) > 0.0;
     }
 
     matches_simple(&combined, actual)
 }
 
+/// Score the VIS-side metadata of a vPIC pattern (the part after `|`).
+///
+/// Meta is two slots: meta[0] = year code (VIS[0] = VIN pos 10), meta[1] =
+/// plant code (VIS[1] = VIN pos 11). Each can be a literal char, `*`
+/// wildcard, or a `[ABC]`/`[A-Z]` char class. Returns 0.0 on any mismatch
+/// so wrong-plant rows can't outrank correct ones at weight=0.
 fn vis_score(_actual: &str, vis: &str, meta: &str) -> f64 {
-    let plant = match vis.chars().next() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let expected = match meta.chars().nth(1) {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    if expected == '*' {
-        return 0.8;
+    let mc: Vec<char> = meta.chars().collect();
+    let vc: Vec<char> = vis.chars().collect();
+    let mut mi = 0;
+    let mut vi = 0;
+    let mut score: f64 = 0.0;
+    let mut slots: f64 = 0.0;
+    while mi < mc.len() && vi < vc.len() {
+        let m = mc[mi];
+        let v = vc[vi];
+        if m == '[' {
+            let close = match mc[mi + 1..].iter().position(|c| *c == ']') {
+                Some(off) => mi + 1 + off,
+                None => return 0.0,
+            };
+            if !in_class(v, &mc[mi + 1..close]) {
+                return 0.0;
+            }
+            score += 0.9;
+            slots += 1.0;
+            mi = close + 1;
+            vi += 1;
+        } else if m == '*' {
+            score += 0.5;
+            slots += 1.0;
+            mi += 1;
+            vi += 1;
+        } else {
+            if m != v {
+                return 0.0;
+            }
+            score += 1.0;
+            slots += 1.0;
+            mi += 1;
+            vi += 1;
+        }
     }
-    if expected == plant {
-        return 1.0;
+    if slots == 0.0 {
+        return 0.0;
     }
-    0.0
+    (score / slots).clamp(0.0, 1.0)
 }
 
 fn score_simple(pattern: &str, input: &str) -> f64 {
@@ -200,27 +229,37 @@ mod tests {
 
     #[test]
     fn vis_metadata_plant_match() {
-        let s = confidence("*****|*A", "EF14H8", "ATCA73155");
-        assert_eq!(s, 1.0);
+        // VIS[1]='T' in "ATCA73155" — meta `*T` matches plant 'T'.
+        let s = confidence("*****|*T", "EF14H8", "ATCA73155");
+        assert_eq!(s, 0.75);
     }
 
     #[test]
     fn vis_metadata_plant_mismatch() {
+        // VIS[1]='T' — meta `*Z` rejects.
         let s = confidence("*****|*Z", "EF14H8", "ATCA73155");
         assert_eq!(s, 0.0);
     }
 
     #[test]
     fn vis_metadata_wildcard_plant() {
+        // Both slots wildcard — half score per slot.
         let s = confidence("*****|**", "EF14H8", "ATCA73155");
-        assert_eq!(s, 0.8);
+        assert_eq!(s, 0.5);
+    }
+
+    #[test]
+    fn vis_metadata_class_plant() {
+        // VIS[1]='T' inside class [STU] — class match at 0.9.
+        let s = confidence("*****|*[STU]", "EF14H8", "ATCA73155");
+        assert!(s > 0.65, "got {s}");
     }
 
     #[test]
     fn matches_top_level_branches() {
         assert!(matches("CM82*", "CM8263", "33A004352"));
         assert!(!matches("ZZZZ*", "CM8263", "33A004352"));
-        assert!(matches("*****|*A", "EF14H8", "ATCA73155"));
+        assert!(matches("*****|*T", "EF14H8", "ATCA73155"));
         assert!(!matches("*****|*Z", "EF14H8", "ATCA73155"));
     }
 

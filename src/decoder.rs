@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::data::{LookupRow, MakeRow, SchemaRow};
+use crate::data::{LookupRow, MakeRow, SchemaRow, VinRuleRow};
 use crate::element::Element;
 use crate::maps::{FstMap, data_dir};
 use crate::types::{Vehicle, Vin};
-use crate::{Error, check_digit, pattern, year};
+use crate::{Error, check_digit, pattern};
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -18,6 +18,7 @@ pub struct Decoder {
     wmi_make: FstMap<MakeRow>,
     wmi_schema: FstMap<SchemaRow>,
     schema_lookup: FstMap<LookupRow>,
+    wmi_rules: Option<FstMap<VinRuleRow>>,
 }
 
 impl Decoder {
@@ -42,12 +43,19 @@ impl Decoder {
         })
     }
 
-    /// Open the decoder against an explicit data directory.
+    /// Open the decoder against an explicit data directory. The `wmi_rules`
+    /// curated table is optional — only loaded if `wmi_rules.fst` exists.
     pub fn open(dir: &Path) -> crate::Result<Self> {
+        let wmi_rules = if dir.join("wmi_rules.fst").exists() {
+            Some(FstMap::open(dir)?)
+        } else {
+            None
+        };
         Ok(Decoder {
             wmi_make: FstMap::open(dir)?,
             wmi_schema: FstMap::open(dir)?,
             schema_lookup: FstMap::open(dir)?,
+            wmi_rules,
         })
     }
 
@@ -84,12 +92,11 @@ impl Decoder {
     fn decode_inner(&self, vin: Vin) -> Vehicle {
         let wmi = vin.wmi().to_string();
         let mut make_row = self.wmi_make.get(&wmi).and_then(|mut rows| rows.pop());
-        let make = make_row.as_ref().map(|r| r.name.clone());
 
         let mut vehicle = Vehicle {
             vin: vin.as_str().to_string(),
             wmi: wmi.clone(),
-            make,
+            make: make_row.as_ref().map(|r| ascii_fold(&r.name)),
             ..Default::default()
         };
 
@@ -101,17 +108,50 @@ impl Decoder {
                 vehicle.region = Some(row.region);
             }
         }
-
-        if let Ok(y) = year::decode(&vin, current_year()) {
-            vehicle.model_year = Some(y);
-        }
         if vehicle.region.is_none() {
             if let Some(region) = crate::wmi::region(vin.as_str().chars().next().unwrap_or('\0')) {
                 vehicle.region = Some(region.to_string());
             }
         }
+
+        // Curated VIN rules first — they can override make (e.g. UU1 → DACIA
+        // on HSD prefix vs RENAULT default) and supply model when vPIC has no
+        // pattern coverage. Pattern decode runs after and can refine model.
+        self.apply_wmi_rules(&vin, &mut vehicle);
+
+        // model_year is intentionally never filled here. SAE-J853 year codes
+        // map to TWO candidate years 30y apart and brands disagree on which
+        // VIN position carries the year. Returning a guessed year was wrong
+        // more often than helpful on real corpora — consumers who want raw
+        // candidates can call `Vin::year_candidates()` and decide themselves.
+
         self.fill_pattern_attrs(&vin, &mut vehicle);
         vehicle
+    }
+
+    /// Apply the longest-matching curated `wmi_rules` row for this VIN.
+    /// Non-empty `make`/`model` fields overwrite whatever was previously set;
+    /// empty fields are left alone.
+    fn apply_wmi_rules(&self, vin: &Vin, vehicle: &mut Vehicle) {
+        let Some(wmi_rules) = &self.wmi_rules else {
+            return;
+        };
+        let Some(rules) = wmi_rules.get(vin.wmi()) else {
+            return;
+        };
+        let after_wmi = &vin.as_str()[3..];
+        for rule in rules {
+            if !after_wmi.starts_with(&rule.remainder) {
+                continue;
+            }
+            if !rule.make.is_empty() {
+                vehicle.make = Some(rule.make.clone());
+            }
+            if !rule.model.is_empty() {
+                vehicle.model = Some(rule.model.clone());
+            }
+            return;
+        }
     }
 
     fn fill_pattern_attrs(&self, vin: &Vin, vehicle: &mut Vehicle) {
@@ -146,7 +186,58 @@ impl Decoder {
     }
 }
 
-fn current_year() -> u32 {
-    use time::OffsetDateTime;
-    OffsetDateTime::now_utc().year() as u32
+/// Canonicalise a make string for catalog lookups: uppercase + collapse
+/// hyphens to spaces + ASCII-fold diacritics. Aligns `wmi_make` rows
+/// (`"MERCEDES-BENZ"`, `"CITROËN"`) with `eu_brand_models` rows
+/// (`"MERCEDES BENZ"`, `"CITROEN"`).
+pub(crate) fn normalize_make(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch == '-' || ch == '_' {
+            out.push(' ');
+        } else {
+            for u in ch.to_uppercase() {
+                out.push(ascii_fold_char(u));
+            }
+        }
+    }
+    out
+}
+
+/// Strip diacritics from a string by ASCII-folding common Latin accents.
+/// Used to clean upstream sources that ship `CITROËN`, `ŠKODA`, `BJØRN`, etc.
+/// Non-foldable characters are passed through unchanged.
+pub(crate) fn ascii_fold(s: &str) -> String {
+    s.chars().map(ascii_fold_char).collect()
+}
+
+fn ascii_fold_char(c: char) -> char {
+    match c {
+        'À'..='Å' | 'à'..='å' => {
+            if c.is_ascii_uppercase() || c.is_uppercase() {
+                'A'
+            } else {
+                'a'
+            }
+        }
+        'Ç' => 'C',
+        'ç' => 'c',
+        'È'..='Ë' => 'E',
+        'è'..='ë' => 'e',
+        'Ì'..='Ï' => 'I',
+        'ì'..='ï' => 'i',
+        'Ñ' => 'N',
+        'ñ' => 'n',
+        'Ò'..='Ö' | 'Ø' => 'O',
+        'ò'..='ö' | 'ø' => 'o',
+        'Ù'..='Ü' => 'U',
+        'ù'..='ü' => 'u',
+        'Ý' | 'Ÿ' => 'Y',
+        'ý' | 'ÿ' => 'y',
+        'Š' => 'S',
+        'š' => 's',
+        'Ž' => 'Z',
+        'ž' => 'z',
+        _ => c,
+    }
 }

@@ -6,3 +6,4 @@ Cargo.lock.bak
 /data-built
 /data-resolved
 /data-shipped
+examples/

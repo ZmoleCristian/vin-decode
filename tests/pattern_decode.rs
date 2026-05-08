@@ -32,7 +32,7 @@ fn honda_accord_make_works() {
     let dec = open_decoder();
     let v = dec.decode("1HGCM82633A004352").unwrap();
     assert_eq!(v.make.as_deref(), Some("HONDA"));
-    assert_eq!(v.model_year, Some(2003));
+    assert_eq!(v.model_year, None);
 }
 
 #[test]

@@ -219,13 +219,19 @@ jobs:
         run: |
           set -e
           mkdir -p target/maps target/maps-resolved
+          # 1. vPIC CSVs → wmi_make / wmi_schema / schema_lookup / makes / make_models.
           cargo run --features build --bin vin-decode-build --release -- /tmp/csv target/maps
-          # Resolve any remaining numeric FKs in schema_lookup using NHTSA tables.
+          # 2. Resolve any remaining numeric FKs in schema_lookup using NHTSA tables.
           # Belt-and-braces: the SQL CASE step above resolves most, but some
           # edge-case elements may slip through; this catches them.
           cargo run --features build --bin vin-decode-resolve-fks --release -- target/maps target/maps-resolved /tmp/nhtsa_lookups
           cp target/maps-resolved/schema_lookup.fst target/maps/schema_lookup.fst
           cp target/maps-resolved/schema_lookup.bin target/maps/schema_lookup.bin
+          # 3. EU rip → eu_brand_models / eu_engines / wmi_rules + the merged
+          # wmi_make (vininfo / vin-go / KBA + vPIC, with plant_country/region
+          # populated for EU brands). Ordered last so it overwrites the
+          # vPIC-only wmi_make/makes from step 1 with the merged version.
+          cargo run --features build --bin vin-decode-rip-build --release -- data-rip target/maps
           mkdir -p data
           cp target/maps/*.fst data/
           for bin in target/maps/*.bin; do
