@@ -174,16 +174,38 @@ impl Decoder {
             }
         }
         for (elem, mut group) in groups {
-            group.sort_by(|a, b| {
-                b.0.weight
-                    .cmp(&a.0.weight)
-                    .then(b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
-            });
+            group.sort_by(rank_candidates);
             if let Some((top, _)) = group.into_iter().next() {
                 elem.apply(vehicle, top.value);
             }
         }
     }
+}
+
+/// Order two competing pattern rows for the same element, best first.
+///
+/// Primary keys are the vPIC element weight then the pattern-match confidence
+/// — the real signal. But some vPIC snapshots ship no weight column (every
+/// `weight` is 0) and equally specific patterns tie on confidence too, so the
+/// top two keys collapse and the winner would otherwise fall to data row order
+/// — which the SQL dump does not pin down, making decode nondeterministic.
+///
+/// Two further keys keep it deterministic AND correct: a resolved human name
+/// always beats a still-numeric foreign-key id (`"Model 3"` over `"29000005"`),
+/// and the value string itself breaks any final tie.
+fn rank_candidates(a: &(LookupRow, f64), b: &(LookupRow, f64)) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    b.0.weight
+        .cmp(&a.0.weight)
+        .then(b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal))
+        .then_with(|| looks_like_fk(&a.0.value).cmp(&looks_like_fk(&b.0.value)))
+        .then_with(|| a.0.value.cmp(&b.0.value))
+}
+
+/// A value that is entirely ASCII digits is an unresolved foreign-key id rather
+/// than a human-readable attribute — rank it below any real name.
+fn looks_like_fk(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|c| c.is_ascii_digit())
 }
 
 /// Canonicalise a make string for catalog lookups: uppercase + collapse
@@ -239,5 +261,65 @@ fn ascii_fold_char(c: char) -> char {
         'Ž' => 'Z',
         'ž' => 'z',
         _ => c,
+    }
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::{looks_like_fk, rank_candidates};
+    use crate::data::LookupRow;
+
+    fn cand(value: &str, weight: u32, conf: f64) -> (LookupRow, f64) {
+        (
+            LookupRow {
+                pattern: "*".into(),
+                element: "Model".into(),
+                value: value.into(),
+                weight,
+            },
+            conf,
+        )
+    }
+
+    #[test]
+    fn fk_detection() {
+        assert!(looks_like_fk("29000005"));
+        assert!(!looks_like_fk("Model 3"));
+        assert!(!looks_like_fk("")); // empty is not a numeric FK
+        assert!(!looks_like_fk("A4"));
+    }
+
+    /// The regression that took the cron down: equal weight (0) + equal
+    /// confidence, resolved name must beat the raw FK regardless of input order.
+    #[test]
+    fn resolved_name_beats_raw_fk_either_order() {
+        for mut g in [
+            [cand("29000005", 0, 1.0), cand("Model 3", 0, 1.0)],
+            [cand("Model 3", 0, 1.0), cand("29000005", 0, 1.0)],
+        ] {
+            g.sort_by(rank_candidates);
+            assert_eq!(g[0].0.value, "Model 3");
+        }
+    }
+
+    #[test]
+    fn weight_then_confidence_dominate() {
+        let mut g = [cand("Model 3", 0, 1.0), cand("29000005", 5, 0.1)];
+        g.sort_by(rank_candidates);
+        assert_eq!(g[0].0.value, "29000005", "a weighted row wins outright");
+
+        let mut g = [cand("low", 0, 0.2), cand("high", 0, 0.9)];
+        g.sort_by(rank_candidates);
+        assert_eq!(g[0].0.value, "high", "higher confidence breaks weight tie");
+    }
+
+    #[test]
+    fn fully_tied_is_order_independent() {
+        let mut a = [cand("Zeta", 0, 1.0), cand("Alpha", 0, 1.0)];
+        let mut b = [cand("Alpha", 0, 1.0), cand("Zeta", 0, 1.0)];
+        a.sort_by(rank_candidates);
+        b.sort_by(rank_candidates);
+        assert_eq!(a[0].0.value, "Alpha");
+        assert_eq!(a[0].0.value, b[0].0.value);
     }
 }
