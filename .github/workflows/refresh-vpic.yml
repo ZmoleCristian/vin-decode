@@ -302,4 +302,18 @@ jobs:
         if: steps.skip.outputs.skip != 'true' && env.CARGO_REGISTRY_TOKEN != ''
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish --all-features
+        run: |
+          # crates.io periodically 503s / times out mid-upload (Fastly hiccups).
+          # Retry a few times; if a prior attempt actually landed, the
+          # "already uploaded" response counts as success.
+          ver=$(grep '^version' Cargo.toml | head -1 | sed -E 's/version = "([0-9.]+)"/\1/')
+          for attempt in 1 2 3 4 5; do
+            out=$(cargo publish --all-features 2>&1) && { echo "$out"; echo "published v${ver} on attempt ${attempt}"; exit 0; }
+            echo "$out"
+            if echo "$out" | grep -qiE 'already (exists|uploaded)|is already uploaded'; then
+              echo "v${ver} already on crates.io — treating as success"; exit 0
+            fi
+            echo "publish attempt ${attempt} failed (likely transient); retrying in 30s..."
+            sleep 30
+          done
+          echo "cargo publish failed after 5 attempts"; exit 1
