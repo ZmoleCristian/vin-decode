@@ -122,8 +122,16 @@ jobs:
             local query="$1"
             local out="$2"
             local header="$3"
-            sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -d vPICList -W -s "$(printf '\t')" -h -1 \
+            # -b: exit non-zero on SQL errors (sev >= 11) so a missing table /
+            # bad query aborts the job instead of silently writing the server
+            # error text into the CSV (which then poisons vin-decode-build).
+            sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -b -d vPICList -W -s "$(printf '\t')" -h -1 \
               -Q "$query" -o "${out}.raw"
+            # Belt-and-braces: scan for the tell-tale server error lines in case
+            # -b ever lets one through.
+            if grep -qE '^Msg [0-9]+, Level [0-9]+|Invalid object name|Incorrect syntax near' "${out}.raw"; then
+              echo "SQL error while dumping ${out}:"; cat "${out}.raw"; exit 1
+            fi
             grep -vE '^\s*$|^\([0-9]+ rows affected\)$|^Changed database context' "${out}.raw" \
               | LC_ALL=C sort -t "$(printf '\t')" -k1,1 -s > "${out}"
             sed -i "1i ${header}" "${out}"
@@ -151,6 +159,19 @@ jobs:
           weight_col=${weight_col:-NULL}
           weight_expr=$([ "$weight_col" = "NULL" ] && echo "0" || echo "ISNULL(p.${weight_col},0)")
           echo "using weight expr: $weight_expr"
+
+          # The "lite" vPIC snapshots intermittently drop per-element lookup
+          # tables (BodyClass vanished in the 2025-11 dump). The static CASE
+          # below binds every table name at compile time, so ONE missing table
+          # aborts the entire query. Create empty stubs for any that are absent
+          # — those elements then fall through to the raw numeric AttributeId,
+          # which vin-decode-resolve-fks back-fills from the NHTSA JSON dumps.
+          for t in Model Make BodyClass FuelType DriveType EngineConfiguration \
+                   Manufacturer TransmissionStyle BatteryType ChargerLevel \
+                   ElectrificationLevel BrakeSystem Country Series Trim; do
+            sqlcmd -S localhost,1433 -U sa -P 'VinDecodeP@ss123' -C -b -d vPICList \
+              -Q "IF OBJECT_ID(N'[$t]') IS NULL CREATE TABLE [$t] (Id int, Name nvarchar(4000));"
+          done
 
           # Pattern.AttributeId is a foreign-key into the per-element lookup
           # table (Model.Id, BodyClass.Id, FuelType.Id, etc.) for numeric-typed
@@ -191,6 +212,14 @@ jobs:
           echo "--- schema_id_lookup lines 35-45 ---"
           sed -n '35,45p' /tmp/csv/schema_id_lookup.csv | cat -A
 
+          # Hard floor: a healthy schema_lookup has tens of thousands of rows.
+          # Anything tiny means the dump broke (e.g. error text in the CSV) —
+          # fail here with a clear message instead of deep in the Rust build.
+          lines=$(wc -l < /tmp/csv/schema_id_lookup.csv)
+          if [ "$lines" -lt 1000 ]; then
+            echo "schema_id_lookup.csv has only $lines lines — dump is broken"; exit 1
+          fi
+
       - name: fetch NHTSA lookup tables
         if: steps.skip.outputs.skip != 'true'
         run: |
@@ -211,7 +240,9 @@ jobs:
           fetch Transmission "transmission%20style"
           fetch BatteryType "battery%20type"
           fetch ChargerLevel "charger%20level"
-          fetch BrakeSystem "brake%20system%20type"
+          # Filename must match the vPIC Element.Name ("BrakeSystemType") so
+          # resolve-fks can key the back-fill by element.
+          fetch BrakeSystemType "brake%20system%20type"
           fetch PlantCountry "plant%20country"
 
       - name: regenerate FSTs
