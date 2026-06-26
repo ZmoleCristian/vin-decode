@@ -132,6 +132,67 @@ pub fn collect_makes(wmi_make: &[(String, Vec<MakeRow>)]) -> Vec<String> {
     set.into_iter().collect()
 }
 
+/// Curated supplement of real passenger-car / light-commercial (van) makes that
+/// are **not** derived from any WMI/VIN row.
+///
+/// The make index is normally built from WMI data ([`collect_makes`]), so a
+/// brand only exists if some VIN row carries it. That excludes recent / niche /
+/// EV / microcar marques for which we hold no WMI data but which are real cars
+/// on the EU/RO market. This list decouples make membership from VIN data: every
+/// entry here is folded into `makes.fst` by [`merge_makes`] so
+/// [`crate::Catalog::has_make`] / [`crate::Catalog::all_makes`] recognise them.
+///
+/// Entries are uppercased on merge, so casing here is cosmetic. Keep this list
+/// to **real passenger cars / vans only** — no motorcycles, trailers, campers,
+/// boats, or junk tokens. When unsure whether a token is a real car make, leave
+/// it out (a downstream canonicalizer should reject + surface unknowns rather
+/// than silently accept a wrong make).
+pub const EXTRA_MAKES: &[&str] = &[
+    // --- Chinese EV / new-energy brands now on the EU/RO market ---
+    "DENZA",     // BYD premium sub-brand
+    "JAC",       // JAC Motors (e.g. e-JS, iEV, vans)
+    "LEAPMOTOR", // Leapmotor (Stellantis JV, sold in EU)
+    "AION",      // GAC Aion (EV)
+    "AIWAYS",    // Aiways (U5/U6, was sold in EU)
+    "ZEEKR",     // Geely premium EV
+    "OMODA",     // Chery sub-brand (Omoda 5 etc.)
+    "JAECOO",    // Chery off-road sub-brand (sister of Omoda, EU launch)
+    "SERES",     // Seres / DFSK EV (sold in EU)
+    "VOYAH",     // Dongfeng premium EV (sold in EU, e.g. Free/Courage)
+    "HONGQI",    // FAW premium (sold in EU, e.g. E-HS9)
+    "MAXUS",     // SAIC Maxus (LCV/vans + EVs) — already WMI-covered, kept for safety
+    // --- Geely/Volvo orbit ---
+    "LYNK & CO", // Lynk & Co (Geely/Volvo) — canonical spelling
+    // --- Korean ---
+    "KGM", // KG Mobility — the renamed SsangYong
+    // --- European microcars / quadricycles / small EVs (real cars) ---
+    "AIXAM",     // French microcar/quadricycle
+    "LIGIER",    // French microcar/quadricycle
+    "MICROLINO", // Swiss bubble-car EV
+    "TAZZARI",   // Italian EV microcar (Zero)
+    "XEV",       // XEV (YoYo) EV microcar
+    "ESTRIMA",   // Estrima Birò EV quadricycle
+    "CHATENET",  // French microcar/quadricycle
+    "DR",        // DR Automobiles (Italy, rebadged Chery)
+    "EVO",       // EVO (DR's value sub-brand, Italy)
+    "SWM",       // SWM (Italy, SUVs)
+];
+
+/// Fold the curated [`EXTRA_MAKES`] supplement into a WMI-derived make list.
+///
+/// Takes the makes already collected from WMI data and returns the union with
+/// the curated supplement, uppercased, deduped and lexicographically sorted
+/// (the ordering [`write_set`] requires for FST insertion). This is the seam
+/// that makes the catalog the single source of truth for car makes regardless
+/// of whether a brand has any VIN/WMI rows.
+pub fn merge_makes(wmi_makes: &[String]) -> Vec<String> {
+    let mut set: BTreeSet<String> = wmi_makes.iter().map(|m| m.to_ascii_uppercase()).collect();
+    for extra in EXTRA_MAKES {
+        set.insert(extra.to_ascii_uppercase());
+    }
+    set.into_iter().collect()
+}
+
 /// Build the full set of FST/bin files plus the makes index and make_models reverse index.
 pub fn build_all(
     wmi_make: &[(String, Vec<MakeRow>)],
@@ -307,7 +368,7 @@ pub fn build_from_csv(csv_dir: &Path, out_dir: &Path) -> crate::Result<()> {
         })
     })?;
 
-    let makes = collect_makes(&wmi_make);
+    let makes = merge_makes(&collect_makes(&wmi_make));
     write_set(&makes, &out_dir.join("makes.fst"))?;
     let make_models = derive_make_models(&wmi_make, &wmi_schema, &schema_lookup);
     write_grouped(
@@ -378,8 +439,7 @@ pub fn build_from_rip(rip_dir: &Path, out_dir: &Path) -> crate::Result<()> {
             brands.push(b.to_string());
         }
     }
-    brands.sort();
-    brands.dedup();
+    let brands = merge_makes(&brands);
     write_set(&brands, &out_dir.join("makes.fst"))?;
 
     write_csv_grouped::<EuModelRow, _>(

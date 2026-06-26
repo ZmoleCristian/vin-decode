@@ -1,6 +1,9 @@
 mod common;
 
+use std::path::Path;
+
 use tempfile::TempDir;
+use vin_decode::build::{EXTRA_MAKES, merge_makes};
 use vin_decode::data::{LookupRow, MakeRow};
 use vin_decode::{FstMap, FstSet};
 
@@ -108,6 +111,60 @@ fn build_from_csv_parses_files() {
     vin_decode::build::build_from_csv(&csv_dir, &out_dir).unwrap();
     let map: FstMap<MakeRow> = FstMap::open(&out_dir).unwrap();
     assert_eq!(map.get("1HG").unwrap()[0].name, "Honda");
+}
+
+#[test]
+fn merge_makes_is_additive_union_with_extras() {
+    // WMI-derived input is preserved, extras are folded in, output sorted+deduped.
+    let wmi = vec!["FORD".to_string(), "honda".to_string(), "DENZA".to_string()];
+    let merged = merge_makes(&wmi);
+    // sorted + uppercased
+    assert!(merged.windows(2).all(|w| w[0] <= w[1]));
+    assert!(merged.contains(&"FORD".to_string()));
+    assert!(merged.contains(&"HONDA".to_string())); // uppercased
+    // every curated extra is present, uppercased
+    for e in EXTRA_MAKES {
+        assert!(
+            merged.contains(&e.to_ascii_uppercase()),
+            "missing extra make {e}"
+        );
+    }
+    // no duplicate even though DENZA was in both WMI input and EXTRA_MAKES
+    let denza = merged.iter().filter(|m| *m == "DENZA").count();
+    assert_eq!(denza, 1);
+}
+
+#[test]
+fn shipped_makes_index_recognises_added_brands() {
+    // The shipped `data/makes.fst` is what `Catalog::has_make`/`all_makes` read.
+    // It must include the curated make-only supplement (brands with no WMI/VIN
+    // data) so the catalog is the single source of truth for car makes.
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("data/makes.fst");
+    let set = FstSet::open(&path).expect("open shipped makes.fst");
+    for brand in [
+        "DENZA",
+        "JAC",
+        "LYNK & CO",
+        "POLESTAR",
+        "GENESIS",
+        "KGM",
+        "AIXAM",
+        "LEAPMOTOR",
+        "ZEEKR",
+    ] {
+        assert!(set.contains(brand), "shipped makes.fst missing {brand}");
+    }
+    // every curated extra made it into the shipped index
+    for e in EXTRA_MAKES {
+        assert!(
+            set.contains(&e.to_ascii_uppercase()),
+            "shipped makes.fst missing extra {e}"
+        );
+    }
+    // existing WMI-derived makes are still there (additive, nothing dropped)
+    assert!(set.contains("FORD"));
+    assert!(set.contains("VOLKSWAGEN"));
+    assert!(set.len() >= 188, "expected >=188 makes, got {}", set.len());
 }
 
 #[test]
