@@ -151,9 +151,25 @@ fn shipped_makes_index_recognises_added_brands() {
         "AIXAM",
         "LEAPMOTOR",
         "ZEEKR",
+        // v0.1.9 additions (real car/SUV marques surfaced by the scraper)
+        "JETOUR",
+        "AVATR",
+        "BAIC",
+        "GWM",
+        "TANK",
+        "ORA",
+        "FORTHING",
+        "BESTUNE",
+        "SKYWELL",
+        "DFSK",
     ] {
         assert!(set.contains(brand), "shipped makes.fst missing {brand}");
     }
+    // AVATR is the canonical spelling; the wrong "AVATAR" must NOT leak in.
+    assert!(
+        !set.contains("AVATAR"),
+        "AVATAR is a mis-spelling; canonical make is AVATR"
+    );
     // every curated extra made it into the shipped index
     for e in EXTRA_MAKES {
         assert!(
@@ -164,7 +180,7 @@ fn shipped_makes_index_recognises_added_brands() {
     // existing WMI-derived makes are still there (additive, nothing dropped)
     assert!(set.contains("FORD"));
     assert!(set.contains("VOLKSWAGEN"));
-    assert!(set.len() >= 188, "expected >=188 makes, got {}", set.len());
+    assert!(set.len() >= 198, "expected >=198 makes, got {}", set.len());
 }
 
 #[test]

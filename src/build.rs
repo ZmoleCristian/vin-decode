@@ -161,6 +161,16 @@ pub const EXTRA_MAKES: &[&str] = &[
     "VOYAH",     // Dongfeng premium EV (sold in EU, e.g. Free/Courage)
     "HONGQI",    // FAW premium (sold in EU, e.g. E-HS9)
     "MAXUS",     // SAIC Maxus (LCV/vans + EVs) — already WMI-covered, kept for safety
+    "JETOUR",    // Chery SUV sub-brand (Dashing/T2), EU/RO launch
+    "AVATR",     // Changan/Huawei/CATL premium EV (canonical "Avatr", NOT "Avatar")
+    "BAIC",      // Beijing Automotive (X55/X7/B-series), sold in EU/RO
+    "GWM",       // Great Wall Motor — umbrella consumer marque in Europe
+    "TANK",      // GWM standalone off-road SUV marque (Tank 300/500/700)
+    "ORA",       // GWM standalone EV marque (Funky/Good Cat), in EU since 2022
+    "FORTHING",  // Dongfeng Forthing passenger SUVs/sedans (T5 etc.)
+    "BESTUNE",   // FAW Bestune passenger cars (B70 sedan, T-series SUVs)
+    "SKYWELL",   // Skywell EV SUVs (BE11), sold in UK/EU
+    "DFSK",      // Dongfeng Sokon — passenger SUVs/MPVs (Glory/Fengon) + vans
     // --- Geely/Volvo orbit ---
     "LYNK & CO", // Lynk & Co (Geely/Volvo) — canonical spelling
     // --- Korean ---
