@@ -162,6 +162,9 @@ fn shipped_makes_index_recognises_added_brands() {
         "BESTUNE",
         "SKYWELL",
         "DFSK",
+        // v0.1.10 additions (real EU-reachable car/SUV marques surfaced by the scraper)
+        "XIAOMI",
+        "IM",
     ] {
         assert!(set.contains(brand), "shipped makes.fst missing {brand}");
     }

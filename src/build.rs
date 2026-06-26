@@ -171,6 +171,8 @@ pub const EXTRA_MAKES: &[&str] = &[
     "BESTUNE",   // FAW Bestune passenger cars (B70 sedan, T-series SUVs)
     "SKYWELL",   // Skywell EV SUVs (BE11), sold in UK/EU
     "DFSK",      // Dongfeng Sokon — passenger SUVs/MPVs (Glory/Fengon) + vans
+    "XIAOMI", // Xiaomi Auto / Xiaomi EV (SU7 sedan, YU7 SUV) — car maker since 2024, EU-registered
+    "IM",     // IM Motors (SAIC "Intelligence in Motion") — IM5/IM6 sold in EU via MG network
     // --- Geely/Volvo orbit ---
     "LYNK & CO", // Lynk & Co (Geely/Volvo) — canonical spelling
     // --- Korean ---
