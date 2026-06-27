@@ -1,7 +1,7 @@
 mod common;
 
 use tempfile::TempDir;
-use vin_decode::{BodyClass, Catalog, FuelType};
+use vin_decode::{BodyType, Catalog, FuelType};
 
 #[test]
 fn all_makes_returns_sorted_uppercase() {
@@ -50,11 +50,23 @@ fn models_for_unknown_make_returns_empty() {
 }
 
 #[test]
-fn body_classes_static_full_list() {
-    let bc = Catalog::body_classes();
-    assert_eq!(bc.len(), 16);
-    assert!(bc.contains(&BodyClass::Sedan));
-    assert!(bc.contains(&BodyClass::Other));
+fn make_for_model_reverse_lookup() {
+    let dir = TempDir::new().unwrap();
+    common::build_fixture(dir.path());
+    let cat = Catalog::open(dir.path()).unwrap();
+    assert_eq!(cat.make_for_model("Civic"), vec!["HONDA"]);
+    assert_eq!(cat.make_for_model("civic"), vec!["HONDA"]); // case-insensitive
+    assert_eq!(cat.make_for_model("F-150"), vec!["FORD"]);
+    assert!(cat.make_for_model("Nonexistent").is_empty());
+}
+
+#[test]
+fn body_types_static_full_list() {
+    let bc = Catalog::body_types();
+    assert_eq!(bc.len(), 38);
+    assert!(bc.contains(&BodyType::Saloon));
+    assert!(bc.contains(&BodyType::PickUp));
+    assert!(!bc.contains(&BodyType::Unknown));
 }
 
 #[test]

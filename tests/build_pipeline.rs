@@ -195,3 +195,74 @@ fn empty_input_produces_empty_maps() {
     let set = FstSet::open(&dir.path().join("makes.fst")).unwrap();
     assert!(set.is_empty());
 }
+
+#[test]
+fn build_from_rip_emits_eu_body_and_catalog_reads_it() {
+    use vin_decode::{BodyType, Catalog};
+
+    let dir = TempDir::new().unwrap();
+    let rip = dir.path().join("rip");
+    let out = dir.path().join("out");
+    std::fs::create_dir_all(&rip).unwrap();
+
+    // Minimal sibling rip files `build_from_rip` requires (header-only where the
+    // content is irrelevant to this test).
+    std::fs::write(
+        rip.join("wmi_merged.tsv"),
+        "wmi\tmake\tcountry\tregion\tsource\tall_makes\n\
+         WVW\tVOLKSWAGEN\tGERMANY\tEUROPE\tKBA\t\n",
+    )
+    .unwrap();
+    std::fs::write(rip.join("brands.tsv"), "brand\nSKODA\nVOLKSWAGEN\n").unwrap();
+    std::fs::write(
+        rip.join("brand_models.tsv"),
+        "brand\tmodel\tfirst_year\tlast_year\n\
+         SKODA\tOCTAVIA\t0\t0\n\
+         VOLKSWAGEN\tGOLF\t0\t0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        rip.join("engines.tsv"),
+        "brand\tmodel\tyear\tengine_name\tcylinders\tdisplacement_cm3\t\
+         power_kw\tpower_hp\ttorque_nm\tfuel\tfuel_system\tdrive\tgearbox\t\
+         top_speed_kmh\taccel_0_100\n",
+    )
+    .unwrap();
+
+    // The optional body map (mirrors the optionality of `wmi_rules.tsv`).
+    std::fs::write(
+        rip.join("body_models.tsv"),
+        "brand\tmodel\tbody\n\
+         SKODA\tOCTAVIA\tAB\n\
+         SKODA\tOCTAVIA\tAC\n\
+         VOLKSWAGEN\tGOLF\tAB\n",
+    )
+    .unwrap();
+
+    // Lay down the base maps a `Catalog` requires (make_models etc.), then
+    // overlay the rip output — mirrors how the shipped data dir is assembled
+    // (vPIC csv build + rip build into the same directory).
+    vin_decode::build::build_all(&[], &[], &[], &out).unwrap();
+    vin_decode::build::build_from_rip(&rip, &out).unwrap();
+
+    assert!(out.join("eu_body.fst").exists(), "eu_body.fst not written");
+    assert!(out.join("eu_body.bin").exists(), "eu_body.bin not written");
+
+    let cat = Catalog::open(&out).unwrap();
+
+    // make is normalised (case-insensitive); model matched uppercase.
+    let skoda = cat.body_for("Skoda", "OCTAVIA");
+    assert!(
+        skoda.contains(&BodyType::Hatchback),
+        "expected Hatchback in {skoda:?}"
+    );
+    assert!(
+        skoda.contains(&BodyType::StationWagon),
+        "expected StationWagon in {skoda:?}"
+    );
+    // single-body model, case-insensitive model lookup.
+    assert_eq!(cat.body_for("VOLKSWAGEN", "golf"), vec![BodyType::Hatchback]);
+    // unknown model / make → empty.
+    assert!(cat.body_for("Skoda", "FABIA").is_empty());
+    assert!(cat.body_for("Nonexistent", "X").is_empty());
+}

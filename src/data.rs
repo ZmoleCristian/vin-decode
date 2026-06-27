@@ -12,6 +12,8 @@ use rkyv::{
     util::AlignedVec,
 };
 
+use crate::types::{BodyType, DriveType, FuelType, Transmission};
+
 /// Marker trait for types that can be rkyv-deserialized via the high-level helpers.
 pub trait RkyvDe<T>: Deserialize<T, HighDeserializer<RkyvError>> {}
 
@@ -100,6 +102,101 @@ impl RkyvDe<EngineRow> for ArchivedEngineRow {}
 impl Saveable for EngineRow {
     fn base_name() -> &'static str {
         "eu_engines"
+    }
+}
+
+impl EngineRow {
+    /// Primary fuel as a typed [`FuelType`], parsed from raw [`EngineRow::fuel`].
+    pub fn fuel_type(&self) -> FuelType {
+        FuelType::parse(&self.fuel)
+    }
+
+    /// Drive layout as a typed [`DriveType`], parsed from raw [`EngineRow::drive`].
+    pub fn drive_type(&self) -> DriveType {
+        DriveType::parse(&self.drive)
+    }
+
+    /// Transmission as a typed [`Transmission`], parsed from raw [`EngineRow::gearbox`].
+    pub fn transmission(&self) -> Transmission {
+        Transmission::parse(&self.gearbox)
+    }
+
+    /// Gear count parsed from the gearbox string (`"6-Speed Manual"` → `Some(6)`).
+    /// `None` when the box carries no leading number (e.g. `"CVT"`).
+    pub fn gearbox_speeds(&self) -> Option<u8> {
+        let bytes = self.gearbox.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() && !bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        if start == i {
+            None
+        } else {
+            self.gearbox[start..i].parse().ok()
+        }
+    }
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+
+    fn row(fuel: &str, drive: &str, gearbox: &str) -> EngineRow {
+        EngineRow {
+            model: "FABIA".into(),
+            year: 2020,
+            name: "1.0 TSI".into(),
+            cylinders: "3".into(),
+            displacement_cm3: 999,
+            power_kw: 70,
+            power_hp: 95,
+            torque_nm: 175,
+            fuel: fuel.into(),
+            drive: drive.into(),
+            gearbox: gearbox.into(),
+        }
+    }
+
+    #[test]
+    fn engine_typed_accessors() {
+        let r = row("Gasoline", "Front Wheel Drive", "6-Speed Manual");
+        assert_eq!(r.fuel_type(), FuelType::Gasoline);
+        assert_eq!(r.drive_type(), DriveType::Fwd);
+        assert_eq!(r.transmission(), Transmission::Manual);
+        assert_eq!(r.gearbox_speeds(), Some(6));
+
+        let ev = row("Electric", "All Wheel Drive", "1-Speed");
+        assert_eq!(ev.fuel_type(), FuelType::Electric);
+        assert_eq!(ev.drive_type(), DriveType::Awd);
+        assert_eq!(ev.transmission(), Transmission::SingleSpeed);
+        assert_eq!(ev.gearbox_speeds(), Some(1));
+
+        let cvt = row("Hybrid", "Front Wheel Drive", "CVT");
+        assert_eq!(cvt.transmission(), Transmission::Cvt);
+        assert_eq!(cvt.gearbox_speeds(), None);
+    }
+}
+
+/// Per-model bodywork row, keyed by `BRAND` (uppercase) in the `eu_body` table —
+/// the same keying as `eu_brand_models`. Each row carries one model and the set
+/// of EU type-approval [`BodyType`] variants observed for it. Look up with
+/// [`crate::Catalog::body_for`].
+#[derive(Archive, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct BodyRow {
+    /// Model name (uppercase canonical, e.g. `"OCTAVIA"`).
+    pub model: String,
+    /// Sorted, deduped EU type-approval bodywork types seen for this model.
+    pub bodies: Vec<BodyType>,
+}
+impl RkyvSer for BodyRow {}
+impl RkyvDe<BodyRow> for ArchivedBodyRow {}
+impl Saveable for BodyRow {
+    fn base_name() -> &'static str {
+        "eu_body"
     }
 }
 

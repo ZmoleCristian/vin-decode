@@ -1,6 +1,6 @@
 //! vPIC element-name → typed enum dispatch.
 
-use crate::types::{BodyClass, FuelType, Vehicle};
+use crate::types::{BodyType, FuelType, Vehicle};
 
 /// Subset of vPIC element codes that we surface in [`Vehicle`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -101,7 +101,7 @@ impl Element {
             }
             Element::Series => vehicle.series = Some(value),
             Element::Trim => vehicle.trim = Some(value),
-            Element::BodyClass => vehicle.body_class = Some(BodyClass::parse(&value)),
+            Element::BodyClass => vehicle.body_type = Some(BodyType::parse(&value)),
             Element::FuelTypePrimary => vehicle.fuel_primary = Some(FuelType::parse(&value)),
             Element::FuelTypeSecondary => vehicle.fuel_secondary = Some(FuelType::parse(&value)),
             Element::Doors => vehicle.doors = value.parse().ok(),

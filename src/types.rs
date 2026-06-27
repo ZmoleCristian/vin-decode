@@ -128,8 +128,8 @@ pub struct Vehicle {
     pub trim: Option<String>,
     /// Model year (1980-2039, decoded from year code + position-7 disambiguator).
     pub model_year: Option<u32>,
-    /// Body style category.
-    pub body_class: Option<BodyClass>,
+    /// Bodywork type, per the EU type-approval standard (see [`BodyType`]).
+    pub body_type: Option<BodyType>,
     /// Primary fuel type.
     pub fuel_primary: Option<FuelType>,
     /// Secondary fuel type (set on hybrids, dual-fuel).
@@ -174,53 +174,333 @@ pub struct Vehicle {
     pub region: Option<String>,
 }
 
-/// Coarse body-style enumeration the decoder normalizes vPIC strings into.
+/// Vehicle bodywork type, per the EU type-approval standard — the two-letter
+/// codes from Commission Regulation (EU) 678/2011 (consolidated into the
+/// framework Reg (EU) 2018/858), the same codes printed on the Certificate of
+/// Conformity and recorded by EU national vehicle registers.
+///
+/// This is a *bodywork* classification, not a market segment. There is
+/// deliberately **no `SUV` / `Crossover`** variant: the standard has none — an
+/// SUV is type-approved as a [`BodyType::StationWagon`] (`AC`) or
+/// [`BodyType::MultiPurpose`] (`AF`). Segment labelling (SUV, city car, …) is
+/// an application-layer concern and is intentionally out of scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[allow(missing_docs)]
-pub enum BodyClass {
-    Sedan,
-    Coupe,
-    Hatchback,
-    Wagon,
-    Convertible,
-    Suv,
-    Crossover,
-    Pickup,
-    Van,
-    Minivan,
-    Bus,
-    Truck,
-    Motorcycle,
-    Trailer,
-    Incomplete,
-    Other,
+pub enum BodyType {
+    // Category M1 — passenger cars
+    Saloon,            // AA
+    Hatchback,         // AB
+    StationWagon,      // AC
+    Coupe,             // AD
+    Convertible,       // AE
+    MultiPurpose,      // AF
+    TruckStationWagon, // AG
+    // Category N — goods vehicles
+    Lorry,       // BA
+    Van,         // BB
+    TractorUnit, // BC
+    RoadTractor, // BD
+    PickUp,      // BE
+    ChassisCab,  // BX
+    // Category M2/M3 — buses & coaches
+    SingleDeckBus,                    // CA
+    DoubleDeckBus,                    // CB
+    ArticulatedSingleDeckBus,         // CC
+    ArticulatedDoubleDeckBus,         // CD
+    LowFloorSingleDeckBus,            // CE
+    LowFloorDoubleDeckBus,            // CF
+    ArticulatedLowFloorSingleDeckBus, // CG
+    ArticulatedLowFloorDoubleDeckBus, // CH
+    OpenTopSingleDeckBus,             // CI
+    OpenTopDoubleDeckBus,             // CJ
+    BusChassis,                       // CX
+    // Category O — trailers
+    SemiTrailer,         // DA
+    DrawbarTrailer,      // DB
+    CentreAxleTrailer,   // DC
+    RigidDrawbarTrailer, // DE
+    // Special-purpose vehicles
+    MotorCaravan,           // SA
+    ArmouredVehicle,        // SB
+    Ambulance,              // SC
+    Hearse,                 // SD
+    TrailerCaravan,         // SE
+    MobileCrane,            // SF
+    SpecialGroup,           // SG
+    WheelchairAccessible,   // SH
+    ConverterDolly,         // SJ
+    ExceptionalLoadTrailer, // SK
+    /// Bodywork that maps to no EU type-approval code — e.g. a category L
+    /// powered two-wheeler, or an unrecognised source string.
+    Unknown,
 }
 
-impl BodyClass {
-    /// Parse a free-form vPIC body-style string into one of the coarse enum variants.
+/// Every standard (code-bearing) variant, in EU-code order. Excludes
+/// [`BodyType::Unknown`], which is the absence of a code rather than a type.
+pub(crate) const BODY_TYPES: &[BodyType] = &[
+    BodyType::Saloon,
+    BodyType::Hatchback,
+    BodyType::StationWagon,
+    BodyType::Coupe,
+    BodyType::Convertible,
+    BodyType::MultiPurpose,
+    BodyType::TruckStationWagon,
+    BodyType::Lorry,
+    BodyType::Van,
+    BodyType::TractorUnit,
+    BodyType::RoadTractor,
+    BodyType::PickUp,
+    BodyType::ChassisCab,
+    BodyType::SingleDeckBus,
+    BodyType::DoubleDeckBus,
+    BodyType::ArticulatedSingleDeckBus,
+    BodyType::ArticulatedDoubleDeckBus,
+    BodyType::LowFloorSingleDeckBus,
+    BodyType::LowFloorDoubleDeckBus,
+    BodyType::ArticulatedLowFloorSingleDeckBus,
+    BodyType::ArticulatedLowFloorDoubleDeckBus,
+    BodyType::OpenTopSingleDeckBus,
+    BodyType::OpenTopDoubleDeckBus,
+    BodyType::BusChassis,
+    BodyType::SemiTrailer,
+    BodyType::DrawbarTrailer,
+    BodyType::CentreAxleTrailer,
+    BodyType::RigidDrawbarTrailer,
+    BodyType::MotorCaravan,
+    BodyType::ArmouredVehicle,
+    BodyType::Ambulance,
+    BodyType::Hearse,
+    BodyType::TrailerCaravan,
+    BodyType::MobileCrane,
+    BodyType::SpecialGroup,
+    BodyType::WheelchairAccessible,
+    BodyType::ConverterDolly,
+    BodyType::ExceptionalLoadTrailer,
+];
+
+impl BodyType {
+    /// The canonical two-letter EU type-approval bodywork code (`"AA"`, `"BB"`,
+    /// …). [`BodyType::Unknown`] has no code and returns `""`.
+    pub fn code(self) -> &'static str {
+        match self {
+            BodyType::Saloon => "AA",
+            BodyType::Hatchback => "AB",
+            BodyType::StationWagon => "AC",
+            BodyType::Coupe => "AD",
+            BodyType::Convertible => "AE",
+            BodyType::MultiPurpose => "AF",
+            BodyType::TruckStationWagon => "AG",
+            BodyType::Lorry => "BA",
+            BodyType::Van => "BB",
+            BodyType::TractorUnit => "BC",
+            BodyType::RoadTractor => "BD",
+            BodyType::PickUp => "BE",
+            BodyType::ChassisCab => "BX",
+            BodyType::SingleDeckBus => "CA",
+            BodyType::DoubleDeckBus => "CB",
+            BodyType::ArticulatedSingleDeckBus => "CC",
+            BodyType::ArticulatedDoubleDeckBus => "CD",
+            BodyType::LowFloorSingleDeckBus => "CE",
+            BodyType::LowFloorDoubleDeckBus => "CF",
+            BodyType::ArticulatedLowFloorSingleDeckBus => "CG",
+            BodyType::ArticulatedLowFloorDoubleDeckBus => "CH",
+            BodyType::OpenTopSingleDeckBus => "CI",
+            BodyType::OpenTopDoubleDeckBus => "CJ",
+            BodyType::BusChassis => "CX",
+            BodyType::SemiTrailer => "DA",
+            BodyType::DrawbarTrailer => "DB",
+            BodyType::CentreAxleTrailer => "DC",
+            BodyType::RigidDrawbarTrailer => "DE",
+            BodyType::MotorCaravan => "SA",
+            BodyType::ArmouredVehicle => "SB",
+            BodyType::Ambulance => "SC",
+            BodyType::Hearse => "SD",
+            BodyType::TrailerCaravan => "SE",
+            BodyType::MobileCrane => "SF",
+            BodyType::SpecialGroup => "SG",
+            BodyType::WheelchairAccessible => "SH",
+            BodyType::ConverterDolly => "SJ",
+            BodyType::ExceptionalLoadTrailer => "SK",
+            BodyType::Unknown => "",
+        }
+    }
+
+    /// Map a two-letter EU type-approval code (case-insensitive) onto a variant.
+    /// Returns `None` for an unrecognised code. This is the exact path for
+    /// registry data that already carries the standard code (e.g. RDW
+    /// `carrosserietype`).
+    pub fn from_code(code: &str) -> Option<Self> {
+        Some(match code.trim().to_ascii_uppercase().as_str() {
+            "AA" => BodyType::Saloon,
+            "AB" => BodyType::Hatchback,
+            "AC" => BodyType::StationWagon,
+            "AD" => BodyType::Coupe,
+            "AE" => BodyType::Convertible,
+            "AF" => BodyType::MultiPurpose,
+            "AG" => BodyType::TruckStationWagon,
+            "BA" => BodyType::Lorry,
+            "BB" => BodyType::Van,
+            "BC" => BodyType::TractorUnit,
+            "BD" => BodyType::RoadTractor,
+            "BE" => BodyType::PickUp,
+            "BX" => BodyType::ChassisCab,
+            "CA" => BodyType::SingleDeckBus,
+            "CB" => BodyType::DoubleDeckBus,
+            "CC" => BodyType::ArticulatedSingleDeckBus,
+            "CD" => BodyType::ArticulatedDoubleDeckBus,
+            "CE" => BodyType::LowFloorSingleDeckBus,
+            "CF" => BodyType::LowFloorDoubleDeckBus,
+            "CG" => BodyType::ArticulatedLowFloorSingleDeckBus,
+            "CH" => BodyType::ArticulatedLowFloorDoubleDeckBus,
+            "CI" => BodyType::OpenTopSingleDeckBus,
+            "CJ" => BodyType::OpenTopDoubleDeckBus,
+            "CX" => BodyType::BusChassis,
+            "DA" => BodyType::SemiTrailer,
+            "DB" => BodyType::DrawbarTrailer,
+            "DC" => BodyType::CentreAxleTrailer,
+            "DE" => BodyType::RigidDrawbarTrailer,
+            "SA" => BodyType::MotorCaravan,
+            "SB" => BodyType::ArmouredVehicle,
+            "SC" => BodyType::Ambulance,
+            "SD" => BodyType::Hearse,
+            "SE" => BodyType::TrailerCaravan,
+            "SF" => BodyType::MobileCrane,
+            "SG" => BodyType::SpecialGroup,
+            "SH" => BodyType::WheelchairAccessible,
+            "SJ" => BodyType::ConverterDolly,
+            "SK" => BodyType::ExceptionalLoadTrailer,
+            _ => return None,
+        })
+    }
+
+    /// Best-effort map of a free-text body-style string — vPIC English, RDW
+    /// Dutch `inrichting`, autoevolution/DBpedia prose — onto the standard
+    /// variant. Order matters: more specific substrings win first.
+    ///
+    /// Market-segment words with no bodywork code (`"SUV"`, `"crossover"`,
+    /// `"CUV"`) collapse to [`BodyType::MultiPurpose`] (`AF`), the standard's
+    /// closest catch-all for a tall multi-use passenger car. Genuinely
+    /// unrecognised input yields [`BodyType::Unknown`].
     pub fn parse(s: &str) -> Self {
         let lc = s.to_ascii_lowercase();
-        match lc.as_str() {
-            x if x.contains("sedan") => BodyClass::Sedan,
-            x if x.contains("coupe") => BodyClass::Coupe,
-            x if x.contains("hatchback") => BodyClass::Hatchback,
-            x if x.contains("wagon") => BodyClass::Wagon,
-            x if x.contains("convertible") || x.contains("cabrio") || x.contains("roadster") => {
-                BodyClass::Convertible
-            }
-            x if x.contains("crossover") || x.contains("cuv") => BodyClass::Crossover,
-            x if x.contains("sport utility") || x.contains("suv") => BodyClass::Suv,
-            x if x.contains("pickup") => BodyClass::Pickup,
-            x if x.contains("minivan") => BodyClass::Minivan,
-            x if x.contains("van") => BodyClass::Van,
-            x if x.contains("bus") => BodyClass::Bus,
-            x if x.contains("truck") => BodyClass::Truck,
-            x if x.contains("motorcycle") || x.contains("motor") => BodyClass::Motorcycle,
-            x if x.contains("trailer") => BodyClass::Trailer,
-            x if x.contains("incomplete") => BodyClass::Incomplete,
-            _ => BodyClass::Other,
+        let has = |needle: &str| lc.contains(needle);
+        // Special-purpose (most specific first).
+        if has("ambulance") {
+            return BodyType::Ambulance;
         }
+        if has("hearse") || has("lijkwagen") {
+            return BodyType::Hearse;
+        }
+        if has("motor caravan") || has("motorhome") || has("camper") {
+            return BodyType::MotorCaravan;
+        }
+        if has("armoured") || has("armored") {
+            return BodyType::ArmouredVehicle;
+        }
+        if has("wheelchair") {
+            return BodyType::WheelchairAccessible;
+        }
+        if has("crane") {
+            return BodyType::MobileCrane;
+        }
+        // Trailers & buses.
+        if has("semi-trailer") || has("semitrailer") {
+            return BodyType::SemiTrailer;
+        }
+        if has("trailer") {
+            return BodyType::DrawbarTrailer;
+        }
+        if has("double") && (has("deck") || has("decker")) {
+            return BodyType::DoubleDeckBus;
+        }
+        if has("bus") || has("coach") {
+            return BodyType::SingleDeckBus;
+        }
+        // Goods vehicles.
+        if has("pick-up") || has("pickup") || has("pick up") {
+            return BodyType::PickUp;
+        }
+        if has("tractor unit") || has("semi tractor") {
+            return BodyType::TractorUnit;
+        }
+        if has("road tractor") {
+            return BodyType::RoadTractor;
+        }
+        if has("chassis") {
+            return BodyType::ChassisCab;
+        }
+        // Passenger cars.
+        if has("truck station wagon") {
+            return BodyType::TruckStationWagon;
+        }
+        if has("multi-purpose")
+            || has("multipurpose")
+            || has("mpv")
+            || has("minivan")
+            || has("people carrier")
+            || has("monovolume")
+            // Market-segment words with no bodywork code — closest standard bucket.
+            || has("suv")
+            || has("sport utility")
+            || has("crossover")
+            || has("cuv")
+            || has("off-road")
+        {
+            return BodyType::MultiPurpose;
+        }
+        if has("station wagon")
+            || has("stationwagen")
+            || has("estate")
+            || has("wagon")
+            || has("kombi")
+            || has("combi")
+            || has("touring")
+            || has("avant")
+            || has("variant")
+            || has("break")
+        {
+            return BodyType::StationWagon;
+        }
+        if has("convertible")
+            || has("cabrio")
+            || has("roadster")
+            || has("spider")
+            || has("spyder")
+            || has("targa")
+            || has("drophead")
+        {
+            return BodyType::Convertible;
+        }
+        if has("coupe") || has("coupé") {
+            return BodyType::Coupe;
+        }
+        if has("hatchback")
+            || has("hatch")
+            || has("liftback")
+            || has("fastback")
+            || has("sportback")
+        {
+            return BodyType::Hatchback;
+        }
+        if has("van") || has("gesloten opbouw") {
+            return BodyType::Van;
+        }
+        if has("saloon")
+            || has("sedan")
+            || has("berlina")
+            || has("berline")
+            || has("limousine")
+            || has("notchback")
+        {
+            return BodyType::Saloon;
+        }
+        // Generic "truck" / "lorry" last so "truck station wagon" etc. win above.
+        if has("lorry") || has("truck") {
+            return BodyType::Lorry;
+        }
+        BodyType::Unknown
     }
 }
 
@@ -270,6 +550,97 @@ impl FuelType {
     }
 }
 
+/// Drive layout, normalised from the free-text `drive` strings in the engine
+/// catalog (`"Front Wheel Drive"`, `"All Wheel Drive"`, …).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(missing_docs)]
+pub enum DriveType {
+    Fwd,
+    Rwd,
+    Awd,
+    FourWheelDrive,
+    Other,
+}
+
+impl DriveType {
+    /// Parse a free-form drive-layout string into a variant.
+    pub fn parse(s: &str) -> Self {
+        let lc = s.to_ascii_lowercase();
+        if lc.contains("front") {
+            DriveType::Fwd
+        } else if lc.contains("rear") {
+            DriveType::Rwd
+        } else if lc.contains("all wheel") || lc.contains("all-wheel") || lc.trim() == "awd" {
+            DriveType::Awd
+        } else if lc.contains("four wheel")
+            || lc.contains("four-wheel")
+            || lc.contains("4wd")
+            || lc.contains("4x4")
+        {
+            DriveType::FourWheelDrive
+        } else {
+            DriveType::Other
+        }
+    }
+}
+
+/// Transmission type, normalised from the free-text `gearbox` strings in the
+/// engine catalog (`"6-Speed Manual"`, `"7-Speed Dual Clutch"`, `"CVT"`, …).
+/// Gear count is separate — see [`crate::EngineRow::gearbox_speeds`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[allow(missing_docs)]
+pub enum Transmission {
+    Manual,
+    Automatic,
+    DualClutch,
+    Cvt,
+    SingleSpeed,
+    AutomatedManual,
+    Other,
+}
+
+impl Transmission {
+    /// Parse a free-form gearbox string into a variant. Order matters: specific
+    /// box types (CVT, dual-clutch, automated-manual) are tested before the
+    /// generic `"manual"` / `"automatic"` substrings.
+    pub fn parse(s: &str) -> Self {
+        let lc = s.to_ascii_lowercase();
+        if lc.contains("cvt") || lc.contains("continuously variable") {
+            Transmission::Cvt
+        } else if lc.contains("single-speed") || lc.contains("single speed") || lc.contains("1-speed")
+        {
+            Transmission::SingleSpeed
+        } else if lc.contains("dual clutch")
+            || lc.contains("dual-clutch")
+            || lc.contains("twin clutch")
+            || lc.contains("dsg")
+            || lc.contains("dct")
+            || lc.contains("dkg")
+            || lc.contains("pdk")
+            || lc.contains("s tronic")
+            || lc.contains("s-tronic")
+            || lc.contains("powershift")
+        {
+            Transmission::DualClutch
+        } else if lc.contains("automated manual")
+            || lc.contains("automatic manual")
+            || lc.contains("automatized")
+            || lc.contains("semi-automatic")
+            || lc.contains("amt")
+        {
+            Transmission::AutomatedManual
+        } else if lc.contains("manual") {
+            Transmission::Manual
+        } else if lc.contains("automatic") || lc.contains("auto") || lc.contains("tiptronic") {
+            Transmission::Automatic
+        } else {
+            Transmission::Other
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,34 +669,89 @@ mod tests {
     }
 
     #[test]
-    fn body_class_full_coverage() {
-        assert_eq!(BodyClass::parse("4-Door Sedan"), BodyClass::Sedan);
-        assert_eq!(BodyClass::parse("2-Door Coupe"), BodyClass::Coupe);
-        assert_eq!(BodyClass::parse("Hatchback"), BodyClass::Hatchback);
-        assert_eq!(BodyClass::parse("Station Wagon"), BodyClass::Wagon);
-        assert_eq!(BodyClass::parse("Convertible"), BodyClass::Convertible);
-        assert_eq!(BodyClass::parse("2-Door Cabriolet"), BodyClass::Convertible);
-        assert_eq!(BodyClass::parse("Roadster"), BodyClass::Convertible);
+    fn body_type_parse_standard_mappings() {
+        // vPIC English
+        assert_eq!(BodyType::parse("4-Door Sedan"), BodyType::Saloon);
+        assert_eq!(BodyType::parse("2-Door Coupe"), BodyType::Coupe);
+        assert_eq!(BodyType::parse("Hatchback"), BodyType::Hatchback);
+        assert_eq!(BodyType::parse("Station Wagon"), BodyType::StationWagon);
+        assert_eq!(BodyType::parse("Convertible"), BodyType::Convertible);
+        assert_eq!(BodyType::parse("2-Door Cabriolet"), BodyType::Convertible);
+        assert_eq!(BodyType::parse("Roadster"), BodyType::Convertible);
+        assert_eq!(BodyType::parse("Crew Cab Pickup"), BodyType::PickUp);
+        assert_eq!(BodyType::parse("Cargo Van"), BodyType::Van);
+        // EU / continental / registry vocab
+        assert_eq!(BodyType::parse("Berline"), BodyType::Saloon);
+        assert_eq!(BodyType::parse("Kombi"), BodyType::StationWagon);
+        assert_eq!(BodyType::parse("Avant"), BodyType::StationWagon);
+        assert_eq!(BodyType::parse("stationwagen"), BodyType::StationWagon);
+        assert_eq!(BodyType::parse("gesloten opbouw"), BodyType::Van);
+        // MPV + market-segment words (no bodywork code) collapse to AF
+        assert_eq!(BodyType::parse("Minivan"), BodyType::MultiPurpose);
         assert_eq!(
-            BodyClass::parse("Crossover Utility Vehicle (CUV)"),
-            BodyClass::Crossover
+            BodyType::parse("Sport Utility Vehicle (SUV)"),
+            BodyType::MultiPurpose
         );
         assert_eq!(
-            BodyClass::parse("Sport Utility Vehicle (SUV)"),
-            BodyClass::Suv
+            BodyType::parse("Crossover Utility Vehicle (CUV)"),
+            BodyType::MultiPurpose
         );
-        assert_eq!(BodyClass::parse("Crew Cab Pickup"), BodyClass::Pickup);
-        assert_eq!(BodyClass::parse("Cargo Van"), BodyClass::Van);
-        assert_eq!(BodyClass::parse("Minivan"), BodyClass::Minivan);
-        assert_eq!(BodyClass::parse("School Bus"), BodyClass::Bus);
-        assert_eq!(BodyClass::parse("Truck"), BodyClass::Truck);
-        assert_eq!(BodyClass::parse("Motorcycle"), BodyClass::Motorcycle);
-        assert_eq!(BodyClass::parse("Trailer"), BodyClass::Trailer);
+        // special-purpose
+        assert_eq!(BodyType::parse("Ambulance"), BodyType::Ambulance);
+        assert_eq!(BodyType::parse("Hearse"), BodyType::Hearse);
+        // category L two-wheelers / junk have no bodywork code
+        assert_eq!(BodyType::parse("Motorcycle"), BodyType::Unknown);
+        assert_eq!(BodyType::parse("Unknown blob"), BodyType::Unknown);
+    }
+
+    #[test]
+    fn body_type_code_roundtrip() {
+        for &b in BODY_TYPES {
+            assert_eq!(BodyType::from_code(b.code()), Some(b), "roundtrip {b:?}");
+        }
+        assert_eq!(BODY_TYPES.len(), 38);
+        assert_eq!(BodyType::from_code("aa"), Some(BodyType::Saloon)); // case-insensitive
+        assert_eq!(BodyType::from_code("ZZ"), None);
+        assert_eq!(BodyType::Unknown.code(), "");
+    }
+
+    #[test]
+    fn drive_type_parse() {
+        assert_eq!(DriveType::parse("Front Wheel Drive"), DriveType::Fwd);
+        assert_eq!(DriveType::parse("Rear Wheel Drive"), DriveType::Rwd);
+        assert_eq!(DriveType::parse("All Wheel Drive"), DriveType::Awd);
         assert_eq!(
-            BodyClass::parse("Incomplete Vehicle"),
-            BodyClass::Incomplete
+            DriveType::parse("Four Wheel Drive"),
+            DriveType::FourWheelDrive
         );
-        assert_eq!(BodyClass::parse("Unknown blob"), BodyClass::Other);
+        assert_eq!(DriveType::parse("4x4"), DriveType::FourWheelDrive);
+        assert_eq!(DriveType::parse(""), DriveType::Other);
+    }
+
+    #[test]
+    fn transmission_parse() {
+        assert_eq!(Transmission::parse("6-Speed Manual"), Transmission::Manual);
+        assert_eq!(
+            Transmission::parse("7-Speed Automatic"),
+            Transmission::Automatic
+        );
+        assert_eq!(
+            Transmission::parse("7-Speed Dual Clutch"),
+            Transmission::DualClutch
+        );
+        assert_eq!(Transmission::parse("6-Speed DSG"), Transmission::DualClutch);
+        assert_eq!(Transmission::parse("7-Speed S tronic"), Transmission::DualClutch);
+        assert_eq!(Transmission::parse("CVT"), Transmission::Cvt);
+        assert_eq!(
+            Transmission::parse("Single-Speed"),
+            Transmission::SingleSpeed
+        );
+        assert_eq!(
+            Transmission::parse("5-Speed Automated Manual"),
+            Transmission::AutomatedManual
+        );
+        assert_eq!(Transmission::parse("Tiptronic"), Transmission::Automatic);
+        assert_eq!(Transmission::parse(""), Transmission::Other);
     }
 
     #[test]

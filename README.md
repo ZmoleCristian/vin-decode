@@ -39,7 +39,7 @@ let models = cat.models_for_make("Honda");
 |---|---|---|
 | `embedded` | yes | Bundles compressed lookup tables; auto-installs on first decoder construction |
 | `parallel` | yes | `rayon`-powered batch decoding |
-| `serde` | no | `serde::{Serialize, Deserialize}` on `Vehicle`, `Vin`, `BodyClass`, `FuelType` |
+| `serde` | no | `serde::{Serialize, Deserialize}` on `Vehicle`, `Vin`, `BodyType`, `FuelType`, `DriveType`, `Transmission` |
 | `build` | no | Exposes the FST/CSV build pipeline (used by CI) |
 
 ## Data freshness

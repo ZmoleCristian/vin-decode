@@ -1,7 +1,7 @@
 mod common;
 
 use tempfile::TempDir;
-use vin_decode::{BodyClass, Decoder, Error, FuelType};
+use vin_decode::{BodyType, Decoder, Error, FuelType};
 
 const HONDA: &str = "1HGCM82633A004352";
 const FORD: &str = "2FTEF14H8TCA73155";
@@ -18,7 +18,7 @@ fn decode_honda_civic_full_attrs() {
     assert_eq!(v.model.as_deref(), Some("Civic"));
     // model_year is no longer auto-decoded (consumer can call year_candidates).
     assert_eq!(v.model_year, None);
-    assert_eq!(v.body_class, Some(BodyClass::Sedan));
+    assert_eq!(v.body_type, Some(BodyType::Saloon));
     assert_eq!(v.fuel_primary, Some(FuelType::Gasoline));
     assert_eq!(v.doors, Some(4));
 }
@@ -32,7 +32,7 @@ fn decode_ford_truck() {
     assert_eq!(v.make.as_deref(), Some("Ford"));
     assert_eq!(v.model.as_deref(), Some("F-150"));
     assert_eq!(v.model_year, None);
-    assert_eq!(v.body_class, Some(BodyClass::Pickup));
+    assert_eq!(v.body_type, Some(BodyType::PickUp));
 }
 
 #[test]

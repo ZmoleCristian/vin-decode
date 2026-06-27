@@ -47,7 +47,7 @@ fn honda_accord_model_resolves() {
 fn honda_accord_body_resolves() {
     let dec = open_decoder();
     let v = dec.decode("1HGCM82633A004352").unwrap();
-    assert!(v.body_class.is_some(), "expected body_class set, got None");
+    assert!(v.body_type.is_some(), "expected body_type set, got None");
 }
 
 /// Tesla Model 3 VIN: same FK issue.

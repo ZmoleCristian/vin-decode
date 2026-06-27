@@ -13,8 +13,11 @@ use fst::{MapBuilder, SetBuilder};
 use rkyv::rancor::Error as RkyvError;
 
 use crate::Error;
-pub use crate::data::{EngineRow, EuModelRow, LookupRow, MakeRow, ModelRow, SchemaRow, VinRuleRow};
+pub use crate::data::{
+    BodyRow, EngineRow, EuModelRow, LookupRow, MakeRow, ModelRow, SchemaRow, VinRuleRow,
+};
 use crate::data::{RkyvSer, Saveable};
+use crate::types::BodyType;
 
 /// Write a typed `key → Vec<T>` map as paired `.fst` index + `.bin` rkyv blob.
 ///
@@ -503,6 +506,52 @@ pub fn build_from_rip(rip_dir: &Path, out_dir: &Path) -> crate::Result<()> {
             &sorted,
             &out_dir.join(format!("{}.fst", VinRuleRow::base_name())),
             &out_dir.join(format!("{}.bin", VinRuleRow::base_name())),
+        )?;
+    }
+
+    // Optional make+model → body-type map (header `brand\tmodel\tbody`). Keyed
+    // by the raw col-0 brand, exactly like `eu_brand_models`. Within a brand we
+    // collapse rows into one `BodyRow` per distinct model, whose `bodies` is the
+    // sorted-deduped set of parsed EU type-approval codes.
+    let body_models_path = rip_dir.join("body_models.tsv");
+    if body_models_path.exists() {
+        let mut acc: BTreeMap<String, BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
+        let mut reader = csv::ReaderBuilder::new()
+            .has_headers(true)
+            .delimiter(b'\t')
+            .quoting(false)
+            .from_path(&body_models_path)?;
+        for rec in reader.records() {
+            let rec = rec.map_err(|e| Error::MissingData(e.to_string()))?;
+            let (Some(brand), Some(model), Some(code)) = (rec.get(0), rec.get(1), rec.get(2)) else {
+                continue;
+            };
+            let Some(body) = BodyType::from_code(code) else {
+                continue;
+            };
+            acc.entry(brand.to_string())
+                .or_default()
+                .entry(model.to_string())
+                .or_default()
+                .insert(body.code().to_string());
+        }
+        let grouped: Vec<(String, Vec<BodyRow>)> = acc
+            .into_iter()
+            .map(|(brand, models)| {
+                let rows = models
+                    .into_iter()
+                    .map(|(model, codes)| BodyRow {
+                        model,
+                        bodies: codes.iter().filter_map(|c| BodyType::from_code(c)).collect(),
+                    })
+                    .collect();
+                (brand, rows)
+            })
+            .collect();
+        write_grouped(
+            &grouped,
+            &out_dir.join(format!("{}.fst", BodyRow::base_name())),
+            &out_dir.join(format!("{}.bin", BodyRow::base_name())),
         )?;
     }
 
