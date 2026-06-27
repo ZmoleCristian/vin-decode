@@ -68,6 +68,20 @@ impl Catalog {
         self.makes.contains(&make.to_ascii_uppercase())
     }
 
+    /// Resolve a raw make string — dealer / listing form, often uppercased and
+    /// sometimes with the model glued on — to a canonical make present in the
+    /// catalog, or `None` if it doesn't resolve.
+    ///
+    /// Tries, in order: exact membership, a curated alias table (e.g. `"LINK"`/
+    /// `"LYNK"` → `"LYNK & CO"`, `"LEOPARD"`/`"BAO"` → `"FANGCHENGBAO"`, `"KG"`
+    /// → `"KGM"`), then dropping trailing whitespace-separated tokens so a glued
+    /// model falls off (`"LEOPARD 5"` → `"FANGCHENGBAO"`, `"LINKTOUR ALUMI"` →
+    /// `"LINKTOUR"`). This is what a downstream scraper should call to canonicalise
+    /// a listing's make before accepting it.
+    pub fn resolve_make(&self, raw: &str) -> Option<String> {
+        resolve_make_with(raw, |k| self.makes.contains(k))
+    }
+
     /// Total number of distinct makes.
     pub fn make_count(&self) -> u64 {
         self.makes.len()
@@ -239,5 +253,93 @@ impl Catalog {
             Transmission::AutomatedManual,
             Transmission::Other,
         ]
+    }
+}
+
+/// Curated alias → canonical make map for raw dealer/registry strings that don't
+/// match the canonical name. Every target here must exist in `makes.fst` (i.e.
+/// be WMI-derived or listed in [`crate::build::EXTRA_MAKES`]).
+fn make_alias(upper: &str) -> Option<&'static str> {
+    Some(match upper {
+        "KG" | "KG MOBILITY" => "KGM",
+        "LINK" | "LYNK" | "LINK & CO" => "LYNK & CO",
+        "LEOPARD" | "BAO" => "FANGCHENGBAO",
+        "MHERO" | "MENGSHI" => "M-HERO",
+        "ZUNJIE" => "MAEXTRO",
+        "DFM" => "DONGFENG",
+        _ => return None,
+    })
+}
+
+/// Make-resolution core, parameterised over a membership test so it unit-tests
+/// without a real FST. See [`Catalog::resolve_make`].
+fn resolve_make_with(raw: &str, contains: impl Fn(&str) -> bool) -> Option<String> {
+    let up = raw.trim().to_ascii_uppercase();
+    if up.is_empty() {
+        return None;
+    }
+    let try_one = |s: &str| -> Option<String> {
+        if contains(s) {
+            return Some(s.to_string());
+        }
+        match make_alias(s) {
+            Some(canon) if contains(canon) => Some(canon.to_string()),
+            _ => None,
+        }
+    };
+    if let Some(hit) = try_one(&up) {
+        return Some(hit);
+    }
+    // Model glued on: drop trailing space-separated tokens, longest prefix first.
+    let toks: Vec<&str> = up.split_whitespace().collect();
+    for n in (1..toks.len()).rev() {
+        if let Some(hit) = try_one(&toks[..n].join(" ")) {
+            return Some(hit);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod resolve_tests {
+    use super::resolve_make_with;
+    use std::collections::HashSet;
+
+    fn fake(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn resolve_make_exact_alias_and_glued() {
+        let makes = fake(&[
+            "KGM",
+            "LYNK & CO",
+            "FANGCHENGBAO",
+            "DONGFENG",
+            "M-HERO",
+            "LINKTOUR",
+        ]);
+        let c = |k: &str| makes.contains(k);
+        // exact, case-insensitive
+        assert_eq!(resolve_make_with("dongfeng", c).as_deref(), Some("DONGFENG"));
+        // aliases
+        assert_eq!(resolve_make_with("KG", c).as_deref(), Some("KGM"));
+        assert_eq!(resolve_make_with("KG Mobility", c).as_deref(), Some("KGM"));
+        assert_eq!(resolve_make_with("LINK", c).as_deref(), Some("LYNK & CO"));
+        assert_eq!(resolve_make_with("Leopard", c).as_deref(), Some("FANGCHENGBAO"));
+        assert_eq!(resolve_make_with("BAO", c).as_deref(), Some("FANGCHENGBAO"));
+        // model glued on
+        assert_eq!(
+            resolve_make_with("LEOPARD 5", c).as_deref(),
+            Some("FANGCHENGBAO")
+        );
+        assert_eq!(
+            resolve_make_with("LINKTOUR ALUMI-PLUS", c).as_deref(),
+            Some("LINKTOUR")
+        );
+        assert_eq!(resolve_make_with("M-HERO 917", c).as_deref(), Some("M-HERO"));
+        // no resolution
+        assert_eq!(resolve_make_with("WALDO", c), None);
+        assert_eq!(resolve_make_with("", c), None);
     }
 }

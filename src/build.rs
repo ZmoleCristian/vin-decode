@@ -191,6 +191,13 @@ pub const EXTRA_MAKES: &[&str] = &[
     "DR",        // DR Automobiles (Italy, rebadged Chery)
     "EVO",       // EVO (DR's value sub-brand, Italy)
     "SWM",       // SWM (Italy, SUVs)
+    // --- More Chinese makes (2024–2025 EU/RO entrants), verified identities ---
+    "DONGFENG",       // Dongfeng — Chinese "Big Four" OEM (raw alias: DFM)
+    "M-HERO",         // Dongfeng Mengshi luxury off-road EV (raw: MHERO, Mengshi)
+    "MAEXTRO",        // JAC × Huawei (HIMA) ultra-luxury (Chinese name: Zunjie)
+    "FANGCHENGBAO",   // BYD off-road sub-brand, marketed "Bao" / "Leopard"
+    "LINKTOUR",       // Weiqiao microcar/quadricycle (Alumi), EU launch
+    "TODAY SUNSHINE", // Zhejiang Today Sunshine microcar — the MAKE (M1/M2 = models)
 ];
 
 /// Fold the curated [`EXTRA_MAKES`] supplement into a WMI-derived make list.
