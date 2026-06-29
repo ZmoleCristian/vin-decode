@@ -136,7 +136,11 @@ fn regen_make_models(
         .into_iter()
         .filter_map(|k| wmi_schema_map.get(&k).map(|v| (k, v)))
         .collect();
-    let make_models = vin_decode::build::derive_make_models(&wmi_make, &wmi_schema, schema_lookup);
+    let make_models = vin_decode::build::merge_make_models(vin_decode::build::derive_make_models(
+        &wmi_make,
+        &wmi_schema,
+        schema_lookup,
+    ));
     vin_decode::build::write_grouped(
         &make_models,
         &out_dir.join("make_models.fst"),

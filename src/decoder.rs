@@ -126,6 +126,18 @@ impl Decoder {
         // candidates can call `Vin::year_candidates()` and decide themselves.
 
         self.fill_pattern_attrs(&vin, &mut vehicle);
+
+        // plant_country: the VIN's ISO 3779 country code (positions 1-2) is the
+        // authoritative source. The WMI metadata table mixes scraped sources
+        // (some plain wrong — e.g. a Sunderland Nissan tagged Switzerland) and
+        // vPIC pattern data is US-centric and FK-leaky, so the country range
+        // encoded in the VIN itself wins whenever it maps. Unmapped prefixes
+        // fall back to whatever the table/pattern supplied (already guarded
+        // against unresolved numeric FKs).
+        if let Some(country) = crate::country::country_from_code(vin.country_code()) {
+            vehicle.plant_country = Some(country.to_string());
+        }
+
         vehicle
     }
 

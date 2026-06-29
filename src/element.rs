@@ -118,9 +118,25 @@ impl Element {
             Element::EvDriveUnit => vehicle.ev_drive_unit = Some(value),
             Element::BrakeSystemType => vehicle.brake_system = Some(value),
             Element::Gvwr => vehicle.gvwr = Some(value),
-            Element::PlantCity => vehicle.plant_city = Some(value),
-            Element::PlantState => vehicle.plant_state = Some(value),
-            Element::PlantCountry => vehicle.plant_country = Some(value),
+            // Plant fields are FK-typed too; vPIC ships them unresolved as bare
+            // integers ("2", "6") that are never a real city/state/country. Drop
+            // those — decode_inner backfills plant_country from the VIN's ISO
+            // country code instead.
+            Element::PlantCity => {
+                if !looks_unresolved_fk {
+                    vehicle.plant_city = Some(value);
+                }
+            }
+            Element::PlantState => {
+                if !looks_unresolved_fk {
+                    vehicle.plant_state = Some(value);
+                }
+            }
+            Element::PlantCountry => {
+                if !looks_unresolved_fk {
+                    vehicle.plant_country = Some(value);
+                }
+            }
         }
     }
 }

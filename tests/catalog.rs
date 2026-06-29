@@ -60,6 +60,52 @@ fn make_for_model_reverse_lookup() {
     assert!(cat.make_for_model("Nonexistent").is_empty());
 }
 
+/// Round-trip the downstream consumer contract against the real shipped
+/// catalog: resolve_make canonicalises a glued listing, and the residual left
+/// after stripping the make token is a model under that canonical make. Also
+/// asserts every curated EXTRA_MAKES brand now ships a non-empty model list
+/// (the bug this fixes: they shipped zero models).
+#[test]
+fn extra_models_curated_cohort_roundtrip() {
+    let cat = Catalog::new().expect("open shipped catalog");
+
+    // "DFSK SERES 3" -> make DFSK (trailing tokens dropped), residual "SERES 3".
+    let m = cat.resolve_make("DFSK SERES 3").expect("DFSK resolves");
+    assert_eq!(m, "DFSK");
+    assert!(
+        cat.models_for_make(&m).iter().any(|x| x == "SERES 3"),
+        "DFSK models missing 'SERES 3': {:?}",
+        cat.models_for_make(&m)
+    );
+
+    // bare-tagged "Seres 3" -> make SERES, residual "3" filed under SERES.
+    let s = cat.resolve_make("SERES 3").expect("SERES resolves");
+    assert_eq!(s, "SERES");
+    assert!(
+        cat.models_for_make(&s).iter().any(|x| x == "3"),
+        "SERES models missing bare '3': {:?}",
+        cat.models_for_make(&s)
+    );
+
+    // normalize_make handles the hyphen/space/&-bearing keys on lookup.
+    assert!(cat.models_for_make("M-HERO").iter().any(|x| x == "917"));
+    assert!(cat.models_for_make("LYNK & CO").iter().any(|x| x == "01"));
+
+    // every curated make resolves and yields a non-empty model list.
+    for mk in [
+        "DFSK", "SERES", "ZEEKR", "OMODA", "JAECOO", "LEAPMOTOR", "DENZA", "VOYAH", "HONGQI",
+        "MAXUS", "JETOUR", "AVATR", "BAIC", "GWM", "TANK", "ORA", "FORTHING", "BESTUNE", "SKYWELL",
+        "AION", "AIWAYS", "JAC", "DONGFENG", "M-HERO", "MAEXTRO", "FANGCHENGBAO", "LINKTOUR",
+        "TODAY SUNSHINE", "XIAOMI", "IM", "LYNK & CO", "KGM", "AIXAM", "LIGIER", "MICROLINO",
+        "TAZZARI", "XEV", "ESTRIMA", "CHATENET", "DR", "EVO", "SWM",
+    ] {
+        assert!(
+            !cat.models_for_make(mk).is_empty(),
+            "curated make {mk} still ships zero models"
+        );
+    }
+}
+
 #[test]
 fn body_types_static_full_list() {
     let bc = Catalog::body_types();

@@ -215,6 +215,131 @@ pub fn merge_makes(wmi_makes: &[String]) -> Vec<String> {
     set.into_iter().collect()
 }
 
+/// Curated supplement of real models for the [`EXTRA_MAKES`] cohort.
+///
+/// `derive_make_models` only buckets models under makes that carry WMI/VIN rows,
+/// so the curated (mostly Chinese-EV / EU-microcar) makes — which have no WMI
+/// data — ship an empty model list. That breaks a downstream resolver that bails
+/// the instant `models_for_make(make)` is empty. This list decouples model
+/// membership from VIN data, mirroring how [`EXTRA_MAKES`] decouples make
+/// membership.
+///
+/// Contract: each entry's make must be a canonical key `resolve_make` can emit
+/// (every one is in [`EXTRA_MAKES`]), and each model must be stored in the form
+/// that survives stripping the make token off a listing slug. A listing
+/// `"DFSK SERES 3"` resolves to make `DFSK` (trailing tokens dropped) leaving
+/// residual `"SERES 3"`, so `SERES 3` is filed under `DFSK`; a bare-tagged
+/// `"Seres 3"` resolves to `SERES` leaving residual `"3"`, so `3` is filed under
+/// `SERES`. When a brand is tagged both ways, both forms are filed.
+///
+/// Models are real/verified — no invented trims. Values are uppercased on merge.
+pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
+    // --- Dongfeng Sokon: Seres-derived SUVs badged DFSK, plus Glory/Fengon/vans ---
+    (
+        "DFSK",
+        &[
+            "SERES 3", "SERES 5", "SERES 7", "GLORY 500", "GLORY 560", "GLORY 580", "FENGON",
+            "EC35",
+        ],
+    ),
+    // bare residual when a dealer tags the make as "Seres"
+    ("SERES", &["3", "5", "7"]),
+    ("ZEEKR", &["001", "007", "009", "X", "7X"]),
+    ("OMODA", &["5", "7", "9", "E5"]),
+    ("JAECOO", &["5", "7", "8"]),
+    ("LEAPMOTOR", &["C10", "C11", "C16", "T03", "B10"]),
+    ("DENZA", &["D9", "N7", "N8", "Z9", "Z9 GT"]),
+    ("VOYAH", &["FREE", "DREAMER", "COURAGE", "PASSION"]),
+    ("HONGQI", &["E-HS9", "H9", "HS5", "H5", "EH7"]),
+    ("MAXUS", &["MIFA 9", "DELIVER 9", "EUNIQ 5", "EUNIQ 6", "T90", "D90", "EV30"]),
+    ("JETOUR", &["DASHING", "T2", "X70", "X90"]),
+    ("AVATR", &["11", "12", "07", "06"]),
+    ("BAIC", &["X55", "X7", "X35", "B40", "BJ40"]),
+    // GWM umbrella marque: cross-sub-brand residuals ("GWM Ora 03" -> GWM / "ORA 03")
+    (
+        "GWM",
+        &[
+            "HAVAL H6", "HAVAL JOLION", "TANK 300", "TANK 500", "ORA 03", "ORA 07", "POER",
+            "WINGLE 5",
+        ],
+    ),
+    ("TANK", &["300", "400", "500", "700"]),
+    ("ORA", &["03", "07", "FUNKY CAT", "GOOD CAT", "LIGHTNING CAT"]),
+    ("FORTHING", &["T5", "T5 EVO", "S7", "FRIDAY", "Z3"]),
+    ("BESTUNE", &["B70", "B70S", "T77", "T99", "T55"]),
+    ("SKYWELL", &["BE11", "ET5"]),
+    ("AION", &["Y", "S", "V", "ES", "UT"]),
+    ("AIWAYS", &["U5", "U6"]),
+    ("JAC", &["E-JS4", "JS4", "IEV7S", "T8", "T9"]),
+    ("DONGFENG", &["BOX", "NAMMI", "E70", "RICH 6", "AX7"]),
+    ("M-HERO", &["917"]),
+    ("MAEXTRO", &["S800"]),
+    // BYD off-road sub-brand: numeric residual + "Bao"/"Leopard" badge forms
+    (
+        "FANGCHENGBAO",
+        &["3", "5", "8", "BAO 3", "BAO 5", "BAO 8", "LEOPARD 5", "LEOPARD 8"],
+    ),
+    ("LINKTOUR", &["ALUMI", "ALUMI PLUS"]),
+    ("TODAY SUNSHINE", &["M1", "M2"]),
+    ("XIAOMI", &["SU7", "YU7"]),
+    ("IM", &["IM5", "IM6", "L6", "L7", "LS6", "LS7", "5", "6"]),
+    // --- Geely/Volvo orbit ---
+    ("LYNK & CO", &["01", "02", "03", "05", "06", "08", "09"]),
+    // --- Korean ---
+    (
+        "KGM",
+        &[
+            "TORRES", "TORRES EVX", "KORANDO", "TIVOLI", "REXTON", "MUSSO", "ACTYON",
+        ],
+    ),
+    // --- European microcars / quadricycles / small EVs ---
+    (
+        "AIXAM",
+        &["CITY", "CROSSLINE", "COUPE", "MINAUTO", "CROSSOVER", "E-CITY"],
+    ),
+    ("LIGIER", &["JS50", "JS60", "MYLI", "JS50L"]),
+    ("MICROLINO", &["LITE", "DOLCE", "PIONEER", "COMPETIZIONE"]),
+    ("TAZZARI", &["ZERO"]),
+    ("XEV", &["YOYO"]),
+    ("ESTRIMA", &["BIRO"]),
+    ("CHATENET", &["CH26", "CH32", "CH40", "SPORTEVO"]),
+    ("DR", &["1", "3", "4", "5", "6", "7", "F35"]),
+    ("EVO", &["3", "4", "5", "6"]),
+    ("SWM", &["G01", "G03", "G05", "DOLCEVITA"]),
+];
+
+/// Fold the curated [`EXTRA_MODELS`] supplement into a derived make→models index.
+///
+/// Keys are normalised the same way [`crate::Catalog::models_for_make`] looks
+/// them up (`normalize_make`: uppercase, `-`/`_` → space, diacritics folded) so a
+/// make like `"M-HERO"` files under `"M HERO"` and resolves on lookup. Models are
+/// uppercased, deduped against any WMI-derived models, and the whole map is
+/// returned key-sorted as FST insertion requires.
+pub fn merge_make_models(base: Vec<(String, Vec<ModelRow>)>) -> Vec<(String, Vec<ModelRow>)> {
+    let mut acc: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (make, rows) in base {
+        let set = acc.entry(make).or_default();
+        for r in rows {
+            set.insert(r.name);
+        }
+    }
+    for (make, models) in EXTRA_MODELS {
+        let key = crate::decoder::normalize_make(make);
+        let set = acc.entry(key).or_default();
+        for m in *models {
+            set.insert(m.to_ascii_uppercase());
+        }
+    }
+    acc.into_iter()
+        .map(|(make, models)| {
+            (
+                make,
+                models.into_iter().map(|name| ModelRow { name }).collect(),
+            )
+        })
+        .collect()
+}
+
 /// Build the full set of FST/bin files plus the makes index and make_models reverse index.
 pub fn build_all(
     wmi_make: &[(String, Vec<MakeRow>)],
@@ -242,7 +367,7 @@ pub fn build_all(
     let makes = collect_makes(wmi_make);
     write_set(&makes, &out_dir.join("makes.fst"))?;
 
-    let make_models = derive_make_models(wmi_make, wmi_schema, schema_lookup);
+    let make_models = merge_make_models(derive_make_models(wmi_make, wmi_schema, schema_lookup));
     write_grouped(
         &make_models,
         &out_dir.join(format!("{}.fst", ModelRow::base_name())),
@@ -409,6 +534,9 @@ where
         .has_headers(true)
         .delimiter(b'\t')
         .quoting(false)
+        // tolerate rows that omit trailing empty columns (e.g. make-only
+        // catch-all rules `WMI\t\tMAKE` with no model) — get(n) yields None.
+        .flexible(true)
         .from_path(csv_path)?;
     let mut acc: BTreeMap<String, Vec<T>> = BTreeMap::new();
     for rec in reader.records() {
