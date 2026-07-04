@@ -208,9 +208,25 @@ pub const EXTRA_MAKES: &[&str] = &[
 /// that makes the catalog the single source of truth for car makes regardless
 /// of whether a brand has any VIN/WMI rows.
 pub fn merge_makes(wmi_makes: &[String]) -> Vec<String> {
-    let mut set: BTreeSet<String> = wmi_makes.iter().map(|m| m.to_ascii_uppercase()).collect();
+    // Drop every alias source so a zero-model duplicate make ("DS",
+    // "MERCEDES-AMG", "ROLLS ROYCE") can't shadow its populated canonical
+    // sibling on resolve_make's exact-match fast path. Non-make sources (raw
+    // dealer tokens like "KG") are simply never present — the filter is a no-op.
+    let drop: BTreeSet<String> = crate::catalog::MAKE_ALIASES
+        .iter()
+        .map(|(from, _)| from.to_ascii_uppercase())
+        .collect();
+    let mut set: BTreeSet<String> = wmi_makes
+        .iter()
+        .map(|m| m.to_ascii_uppercase())
+        .filter(|m| !drop.contains(m))
+        .collect();
     for extra in EXTRA_MAKES {
         set.insert(extra.to_ascii_uppercase());
+    }
+    // Force every alias target present so the redirect always lands a real key.
+    for (_, to) in crate::catalog::MAKE_ALIASES {
+        set.insert(to.to_ascii_uppercase());
     }
     set.into_iter().collect()
 }
@@ -225,12 +241,18 @@ pub fn merge_makes(wmi_makes: &[String]) -> Vec<String> {
 /// membership.
 ///
 /// Contract: each entry's make must be a canonical key `resolve_make` can emit
-/// (every one is in [`EXTRA_MAKES`]), and each model must be stored in the form
+/// (WMI/rip-derived or in [`EXTRA_MAKES`]), and each model must be stored in the form
 /// that survives stripping the make token off a listing slug. A listing
 /// `"DFSK SERES 3"` resolves to make `DFSK` (trailing tokens dropped) leaving
 /// residual `"SERES 3"`, so `SERES 3` is filed under `DFSK`; a bare-tagged
 /// `"Seres 3"` resolves to `SERES` leaving residual `"3"`, so `3` is filed under
 /// `SERES`. When a brand is tagged both ways, both forms are filed.
+///
+/// A trailing section also tops up **mainstream** makes (which do carry WMI
+/// data) with real models the vPIC pattern index and the EU rip miss — mostly
+/// EU light-commercial/van and recent EV/SUV nameplates. Those merge into the
+/// make's existing model set; `models_for_make` dedups, so a model already
+/// present via another source is a harmless no-op.
 ///
 /// Models are real/verified — no invented trims. Values are uppercased on merge.
 pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
@@ -244,7 +266,7 @@ pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
     ),
     // bare residual when a dealer tags the make as "Seres"
     ("SERES", &["3", "5", "7"]),
-    ("ZEEKR", &["001", "007", "009", "X", "7X"]),
+    ("ZEEKR", &["001", "007", "009", "X", "7X", "8X", "9X"]),
     ("OMODA", &["5", "7", "9", "E5"]),
     ("JAECOO", &["5", "7", "8"]),
     ("LEAPMOTOR", &["C10", "C11", "C16", "T03", "B10"]),
@@ -252,7 +274,7 @@ pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
     ("VOYAH", &["FREE", "DREAMER", "COURAGE", "PASSION"]),
     ("HONGQI", &["E-HS9", "H9", "HS5", "H5", "EH7"]),
     ("MAXUS", &["MIFA 9", "DELIVER 9", "EUNIQ 5", "EUNIQ 6", "T90", "D90", "EV30"]),
-    ("JETOUR", &["DASHING", "T2", "X70", "X90"]),
+    ("JETOUR", &["DASHING", "T2", "X70", "X90", "G700"]),
     ("AVATR", &["11", "12", "07", "06"]),
     ("BAIC", &["X55", "X7", "X35", "B40", "BJ40"]),
     // GWM umbrella marque: cross-sub-brand residuals ("GWM Ora 03" -> GWM / "ORA 03")
@@ -277,7 +299,9 @@ pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
     // BYD off-road sub-brand: numeric residual + "Bao"/"Leopard" badge forms
     (
         "FANGCHENGBAO",
-        &["3", "5", "8", "BAO 3", "BAO 5", "BAO 8", "LEOPARD 5", "LEOPARD 8"],
+        &[
+            "3", "5", "8", "TI7", "BAO 3", "BAO 5", "BAO 8", "LEOPARD 5", "LEOPARD 8",
+        ],
     ),
     ("LINKTOUR", &["ALUMI", "ALUMI PLUS"]),
     ("TODAY SUNSHINE", &["M1", "M2"]),
@@ -306,6 +330,44 @@ pub const EXTRA_MODELS: &[(&str, &[&str])] = &[
     ("DR", &["1", "3", "4", "5", "6", "7", "F35"]),
     ("EVO", &["3", "4", "5", "6"]),
     ("SWM", &["G01", "G03", "G05", "DOLCEVITA"]),
+    // --- Mainstream-make top-ups: real models (mostly EU LCV/van + recent
+    // EV/SUV) that the vPIC pattern index and the EU rip miss. Folded into
+    // whatever the make already carries; models_for_make dedups against the EU
+    // catalog, so a model already present via another source is a no-op. Keys
+    // are canonical makes resolve_make already emits (WMI/rip-derived). ---
+    (
+        "ROLLS-ROYCE",
+        &["PHANTOM", "GHOST", "WRAITH", "DAWN", "CULLINAN", "SPECTRE"],
+    ),
+    ("IVECO", &["DAILY"]),
+    ("RENAULT", &["MASTER", "TRAFIC"]),
+    (
+        "CITROEN",
+        &["C5", "C1", "JUMPER", "JUMPY", "SPACETOURER", "BERLINGO"],
+    ),
+    (
+        "FORD",
+        &[
+            "TOURNEO CONNECT",
+            "TOURNEO COURIER",
+            "TOURNEO CUSTOM",
+            "TRANSIT CUSTOM",
+            "TRANSIT CONNECT",
+        ],
+    ),
+    (
+        "VOLKSWAGEN",
+        &["CARAVELLE", "TRANSPORTER", "CRAFTER", "LT", "TAYRON"],
+    ),
+    ("FIAT", &["TALENTO"]),
+    ("NISSAN", &["INTERSTAR"]),
+    ("HYUNDAI", &["IX35", "STARIA", "INSTER"]),
+    ("DACIA", &["BIGSTER"]),
+    ("SKODA", &["ELROQ"]),
+    ("NIO", &["EL6", "EL8"]),
+    ("MG", &["EHS"]),
+    ("GEELY", &["CITYRAY", "STARRAY", "GALAXY"]),
+    ("BYD", &["SEALION 07"]),
 ];
 
 /// Fold the curated [`EXTRA_MODELS`] supplement into a derived make→models index.

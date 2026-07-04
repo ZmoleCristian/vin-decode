@@ -256,19 +256,42 @@ impl Catalog {
     }
 }
 
-/// Curated alias → canonical make map for raw dealer/registry strings that don't
-/// match the canonical name. Every target here must exist in `makes.fst` (i.e.
-/// be WMI-derived or listed in [`crate::build::EXTRA_MAKES`]).
+/// Curated alias → canonical make table for raw dealer/registry strings that
+/// don't match a catalog make. One source of truth for two layers:
+///  - runtime: [`make_alias`] redirects a raw string to its canonical make.
+///  - build: [`crate::build::merge_makes`] drops every alias *source* from
+///    `makes.fst` (so [`Catalog::resolve_make`] can't short-circuit on a
+///    zero-model twin like `"DS"` / `"MERCEDES-AMG"` / `"ROLLS ROYCE"`) and
+///    force-adds every *target*.
+///
+/// Every target must be a real catalog make (WMI/rip-derived or in
+/// [`crate::build::EXTRA_MAKES`]). Sources that aren't catalog makes (raw dealer
+/// tokens like `"KG"` / `"LEOPARD"`) are simply never present to drop — harmless.
+pub(crate) const MAKE_ALIASES: &[(&str, &str)] = &[
+    ("KG", "KGM"),
+    ("KG MOBILITY", "KGM"),
+    ("LINK", "LYNK & CO"),
+    ("LYNK", "LYNK & CO"),
+    ("LINK & CO", "LYNK & CO"),
+    ("LEOPARD", "FANGCHENGBAO"),
+    ("BAO", "FANGCHENGBAO"),
+    ("MHERO", "M-HERO"),
+    ("MENGSHI", "M-HERO"),
+    ("ZUNJIE", "MAEXTRO"),
+    ("DFM", "DONGFENG"),
+    // zero-model duplicate makes → the populated canonical sibling. These
+    // sources ARE catalog makes, so merge_makes drops them from makes.fst.
+    ("DS", "DS AUTOMOBILES"),
+    ("MERCEDES-AMG", "MERCEDES-BENZ"),
+    ("ROLLS ROYCE", "ROLLS-ROYCE"),
+];
+
+/// Look up a raw uppercase make string in the curated [`MAKE_ALIASES`] table.
 fn make_alias(upper: &str) -> Option<&'static str> {
-    Some(match upper {
-        "KG" | "KG MOBILITY" => "KGM",
-        "LINK" | "LYNK" | "LINK & CO" => "LYNK & CO",
-        "LEOPARD" | "BAO" => "FANGCHENGBAO",
-        "MHERO" | "MENGSHI" => "M-HERO",
-        "ZUNJIE" => "MAEXTRO",
-        "DFM" => "DONGFENG",
-        _ => return None,
-    })
+    MAKE_ALIASES
+        .iter()
+        .find(|(from, _)| *from == upper)
+        .map(|(_, to)| *to)
 }
 
 /// Make-resolution core, parameterised over a membership test so it unit-tests

@@ -106,6 +106,89 @@ fn extra_models_curated_cohort_roundtrip() {
     }
 }
 
+/// Make canonicalization: zero-model duplicate makes collapse onto their
+/// populated canonical sibling (via the shared MAKE_ALIASES table + merge_makes
+/// twin-drop), and the empty twins are gone from the make index.
+#[test]
+fn make_canon_collapses_zero_model_twins() {
+    let cat = Catalog::new().expect("open shipped catalog");
+
+    // duplicate make -> populated canon
+    assert_eq!(cat.resolve_make("DS").as_deref(), Some("DS AUTOMOBILES"));
+    assert_eq!(
+        cat.resolve_make("DS 7 CROSSBACK").as_deref(),
+        Some("DS AUTOMOBILES")
+    );
+    assert_eq!(
+        cat.resolve_make("MERCEDES-AMG").as_deref(),
+        Some("MERCEDES-BENZ")
+    );
+    assert_eq!(
+        cat.resolve_make("ROLLS ROYCE").as_deref(),
+        Some("ROLLS-ROYCE")
+    );
+    assert_eq!(
+        cat.resolve_make("ROLLS-ROYCE").as_deref(),
+        Some("ROLLS-ROYCE")
+    );
+
+    // the empty twins no longer live in makes.fst (so resolve_make can't
+    // short-circuit onto them)
+    assert!(!cat.has_make("DS"), "empty 'DS' twin still in makes.fst");
+    assert!(!cat.has_make("MERCEDES-AMG"));
+    assert!(!cat.has_make("ROLLS ROYCE"));
+    // the canonical survivors are present
+    assert!(cat.has_make("DS AUTOMOBILES"));
+    assert!(cat.has_make("MERCEDES-BENZ"));
+    assert!(cat.has_make("ROLLS-ROYCE"));
+
+    // the canon actually carries models now
+    assert!(
+        !cat.models_for_make("DS AUTOMOBILES").is_empty(),
+        "DS AUTOMOBILES ships zero models"
+    );
+    let rr = cat.models_for_make("ROLLS-ROYCE");
+    assert!(rr.iter().any(|m| m == "CULLINAN"), "ROLLS-ROYCE: {rr:?}");
+    assert!(rr.iter().any(|m| m == "PHANTOM"));
+}
+
+/// Model top-ups: one spot-check per make/section in the supplement layer.
+#[test]
+fn model_topups_present() {
+    let cat = Catalog::new().expect("open shipped catalog");
+    let has = |mk: &str, model: &str| {
+        let ms = cat.models_for_make(mk);
+        assert!(
+            ms.iter().any(|m| m == model),
+            "{mk} missing {model}: {ms:?}"
+        );
+    };
+
+    has("IVECO", "DAILY");
+    has("RENAULT", "MASTER");
+    has("RENAULT", "TRAFIC");
+    has("CITROEN", "JUMPER");
+    has("CITROEN", "SPACETOURER");
+    has("FORD", "TOURNEO CUSTOM");
+    has("FORD", "TRANSIT CUSTOM");
+    has("VOLKSWAGEN", "CARAVELLE");
+    has("VOLKSWAGEN", "TAYRON");
+    has("FIAT", "TALENTO");
+    has("NISSAN", "INTERSTAR");
+    // standalone IX35 alongside the pre-existing "IX35 TUCSON"
+    has("HYUNDAI", "IX35");
+    has("HYUNDAI", "STARIA");
+    has("DACIA", "BIGSTER");
+    has("SKODA", "ELROQ");
+    has("NIO", "EL6");
+    has("ZEEKR", "8X");
+    has("JETOUR", "G700");
+    has("FANGCHENGBAO", "TI7");
+    has("MG", "EHS");
+    has("GEELY", "GALAXY");
+    has("BYD", "SEALION 07");
+}
+
 #[test]
 fn body_types_static_full_list() {
     let bc = Catalog::body_types();
