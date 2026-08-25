@@ -579,7 +579,7 @@ pub fn build_from_csv(csv_dir: &Path, out_dir: &Path) -> crate::Result<()> {
 
     let makes = merge_makes(&collect_makes(&wmi_make));
     write_set(&makes, &out_dir.join("makes.fst"))?;
-    let make_models = derive_make_models(&wmi_make, &wmi_schema, &schema_lookup);
+    let make_models = merge_make_models(derive_make_models(&wmi_make, &wmi_schema, &schema_lookup));
     write_grouped(
         &make_models,
         &out_dir.join(format!("{}.fst", ModelRow::base_name())),
